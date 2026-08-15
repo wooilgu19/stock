@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from src.models import OrderRequest, Side
+
 
 @dataclass(frozen=True)
 class AccessToken:
@@ -77,3 +79,64 @@ class KISRestClient:
             return float(body["output"]["stck_prpr"])
         except (KeyError, TypeError, ValueError) as exc:
             raise KISAPIError("KIS price response did not contain stck_prpr") from exc
+
+
+class KISOrderExecutor:
+    """Submit domestic cash orders through a :class:`KISRestClient`.
+
+    This adapter intentionally supports limit orders only: ``OrderRequest``
+    already contains a validated price, and silently changing it to a market
+    order would weaken the risk boundary.  The executor returns only after KIS
+    provides an order number, which lets ``OrderManager`` persist an accepted
+    order safely.
+    """
+
+    def __init__(self, client: KISRestClient, account_number: str,
+                 account_product_code: str = "01", paper_trading: bool = True) -> None:
+        if not account_number.strip():
+            raise ValueError("account_number is required")
+        if not account_product_code.strip():
+            raise ValueError("account_product_code is required")
+        self.client = client
+        self.account_number = account_number
+        self.account_product_code = account_product_code
+        self.paper_trading = paper_trading
+
+    def submit(self, order: OrderRequest) -> str:
+        if order.quantity <= 0 or order.price <= 0:
+            raise ValueError("quantity and price must be positive")
+        if order.side not in (Side.BUY, Side.SELL):
+            raise ValueError("unsupported order side")
+
+        transaction_id = self._transaction_id(order.side)
+        body = self.client._request(
+            "POST",
+            "/uapi/domestic-stock/v1/trading/order-cash",
+            headers={
+                "authorization": f"Bearer {self.client.access_token()}",
+                "appkey": self.client.app_key,
+                "appsecret": self.client.app_secret,
+                "tr_id": transaction_id,
+                "content-type": "application/json; charset=utf-8",
+            },
+            json={
+                "CANO": self.account_number,
+                "ACNT_PRDT_CD": self.account_product_code,
+                "PDNO": order.symbol,
+                "ORD_DVSN": "00",
+                "ORD_QTY": str(order.quantity),
+                "ORD_UNPR": str(int(order.price)),
+            },
+        )
+        try:
+            order_number = str(body["output"]["ODNO"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise KISAPIError("KIS order response did not contain ODNO") from exc
+        if not order_number.strip():
+            raise KISAPIError("KIS order response contained an empty ODNO")
+        return order_number
+
+    def _transaction_id(self, side: Side) -> str:
+        if self.paper_trading:
+            return "VTTC0802U" if side == Side.BUY else "VTTC0801U"
+        return "TTTC0802U" if side == Side.BUY else "TTTC0801U"
