@@ -1,4 +1,4 @@
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 
 from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
@@ -55,3 +55,10 @@ def test_market_hours_rejects_invalid_session():
         assert "earlier" in str(exc)
     else:
         raise AssertionError("invalid session was accepted")
+
+
+def test_market_hours_rejects_configured_holiday():
+    session = MarketHours(holidays={date(2026, 8, 14)})
+    session_time = datetime(2026, 8, 14, 1, 0, tzinfo=timezone.utc)
+
+    assert not session.is_open(session_time)

@@ -13,6 +13,10 @@ An asynchronous stock auto-trading system using the Korea Investment & Securitie
 
 `PortfolioState.from_repository(...)` can restore paper cash and positions from
 persisted simulated/filled trades after a process restart.
+
+`MarketHours(holidays={...})` accepts exchange holiday dates and blocks orders
+on those dates. The holiday set is intentionally supplied by the caller so a
+future KRX calendar provider can be added without changing order execution.
 - `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication and domestic stock price client.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
