@@ -1,0 +1,51 @@
+"""Application wiring for the trading order pipeline.
+
+This module assembles dependencies without starting workers or making network
+requests.  Keeping construction separate from execution makes startup checks
+safe to run in tests and deployment health checks.
+"""
+
+from typing import Any
+
+from src.api.kis_rest import KISOrderExecutor, KISRestClient
+from src.config import Settings
+from src.database.sqlite import TradeRepository
+from src.engine.market_hours import MarketHours
+from src.engine.order_manager import OrderManager
+from src.engine.risk import RiskGate
+
+
+def build_order_manager(settings: Settings, session: Any = None) -> OrderManager:
+    """Build a paper-safe order manager from application settings.
+
+    Paper mode does not need credentials or an executor.  Live mode validates
+    credentials and injects the KIS executor, but still performs no API call
+    until ``OrderManager.submit`` is invoked.
+    """
+    executor = None
+    if not settings.paper_trading:
+        settings.validate_for_live()
+        client = KISRestClient(
+            settings.kis_base_url,
+            settings.kis_appkey,
+            settings.kis_appsecret,
+            session=session,
+        )
+        executor = KISOrderExecutor(
+            client,
+            settings.kis_cano,
+            settings.kis_acnt_prdt_cd,
+            paper_trading=False,
+        )
+
+    return OrderManager(
+        repository=TradeRepository(settings.database_path),
+        risk_gate=RiskGate(
+            settings.min_signal_strength,
+            settings.max_order_value,
+            settings.max_daily_loss,
+        ),
+        paper_trading=settings.paper_trading,
+        market_hours=MarketHours.from_settings(settings),
+        executor=executor,
+    )

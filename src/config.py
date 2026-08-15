@@ -34,5 +34,16 @@ class Settings:
         os.getenv("MARKET_HOLIDAYS", "")
     )
 
+    def validate_for_live(self) -> None:
+        """Reject incomplete credentials before constructing a live pipeline."""
+        required = {
+            "KIS_CANO": self.kis_cano,
+            "KIS_APPKEY": self.kis_appkey,
+            "KIS_APPSECRET": self.kis_appsecret,
+        }
+        missing = [name for name, value in required.items() if not value.strip()]
+        if missing:
+            raise ValueError(f"live trading credentials are missing: {', '.join(missing)}")
+
 
 settings = Settings()
