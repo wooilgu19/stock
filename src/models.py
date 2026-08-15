@@ -60,6 +60,7 @@ class OrderRequest:
     strategy_id: str
     signal_strength: float
     timestamp: datetime = field(default_factory=utc_now)
+    client_order_id: str | None = None
 
     @property
     def value(self) -> int:

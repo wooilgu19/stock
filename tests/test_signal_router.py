@@ -25,7 +25,7 @@ def test_buy_signal_becomes_paper_order(tmp_path):
 
     assert result is not None
     assert result.accepted
-    assert result.order_id.startswith("paper-")
+    assert result.order_id.startswith("baseline:005930:buy:")
     with repository._connect() as connection:
         row = connection.execute("SELECT side, quantity, status FROM trade_logs").fetchone()
     assert (row["side"], row["quantity"], row["status"]) == (Side.BUY.value, 2, "simulated")

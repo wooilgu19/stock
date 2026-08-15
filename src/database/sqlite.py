@@ -55,3 +55,12 @@ class TradeRepository:
                 (Side.SELL.value,),
             ).fetchone()
             return float(row["loss"])
+
+    def has_order_id(self, order_id: str) -> bool:
+        """Return whether an order with this id was already persisted."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM trade_logs WHERE broker_order_id = ? LIMIT 1",
+                (order_id,),
+            ).fetchone()
+            return row is not None

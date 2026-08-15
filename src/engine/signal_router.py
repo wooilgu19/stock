@@ -53,6 +53,10 @@ class SignalOrderRouter:
             strategy_id=signal.strategy_id,
             signal_strength=signal.strength,
             timestamp=signal.timestamp,
+            client_order_id=(
+                f"{signal.strategy_id}:{signal.symbol}:{signal.action.value}:"
+                f"{signal.timestamp.isoformat()}"
+            ),
         )
         result = self.order_manager.submit(order)
         if self.on_result:

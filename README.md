@@ -8,6 +8,7 @@ An asynchronous stock auto-trading system using the Korea Investment & Securitie
 - `src/database/sqlite.py`: SQLite persistence for trade logs.
 - `src/engine/risk.py`: Signal, order-value, and daily-loss checks.
 - `src/engine/order_manager.py`: Paper-trading-first order orchestration.
+- `src/engine/market_hours.py`: Basic KRX weekday/session-hours guard.
 - `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication and domestic stock price client.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.

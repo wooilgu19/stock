@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from src.database.sqlite import TradeRepository
+from src.engine.market_hours import MarketHours
 from src.engine.risk import RiskGate
 from src.models import OrderRequest, TradeLog
 
@@ -15,17 +16,25 @@ class OrderResult:
 
 
 class OrderManager:
-    def __init__(self, repository: TradeRepository, risk_gate: RiskGate, paper_trading: bool = True) -> None:
+    def __init__(self, repository: TradeRepository, risk_gate: RiskGate,
+                 paper_trading: bool = True, market_hours: MarketHours | None = None) -> None:
         self.repository = repository
         self.risk_gate = risk_gate
         self.paper_trading = paper_trading
+        self.market_hours = market_hours
 
     def submit(self, order: OrderRequest) -> OrderResult:
+        if order.client_order_id and self.repository.has_order_id(order.client_order_id):
+            return OrderResult(True, order.client_order_id, "duplicate order already recorded")
+        if self.market_hours and not self.market_hours.is_open(order.timestamp):
+            return OrderResult(False, reason="market is closed")
         decision = self.risk_gate.check(order, self.repository.daily_realized_loss())
         if not decision.allowed:
             return OrderResult(False, reason=decision.reason)
 
-        order_id = f"paper-{order.timestamp.timestamp()}" if self.paper_trading else None
+        order_id = order.client_order_id or (
+            f"paper-{order.timestamp.timestamp()}" if self.paper_trading else None
+        )
         trade_id = self.repository.save(TradeLog(
             symbol=order.symbol,
             side=order.side,
