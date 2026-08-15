@@ -31,3 +31,12 @@ def test_weak_signal_is_rejected(tmp_path):
     result = manager.submit(OrderRequest("005930", Side.BUY, 1, 70_000, "baseline", 0.4))
     assert not result.accepted
     assert "strength" in result.reason
+
+
+def test_order_rejects_invalid_signal_strength():
+    try:
+        OrderRequest("005930", Side.BUY, 1, 70_000, "baseline", 1.1)
+    except ValueError as exc:
+        assert "signal_strength" in str(exc)
+    else:
+        raise AssertionError("invalid signal strength was accepted")

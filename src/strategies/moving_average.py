@@ -1,7 +1,6 @@
 """Small, deterministic moving-average strategy for pipeline validation."""
 
 from collections import defaultdict, deque
-from collections.abc import Iterable
 
 from src.models import Signal, SignalAction, Tick
 
@@ -17,10 +16,11 @@ class MovingAverageStrategy:
         self._prices: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=self.long_window)
         )
+        self._previous_short: dict[str, float] = {}
+        self._previous_long: dict[str, float] = {}
 
     def on_tick(self, tick: Tick) -> Signal:
         prices = self._prices[tick.symbol]
-        previous_short = sum(list(prices)[-self.short_window:]) / min(len(prices), self.short_window) if prices else tick.price
         prices.append(tick.price)
         if len(prices) < self.long_window:
             return Signal(tick.symbol, SignalAction.HOLD, 0.0, tick.price, self.strategy_id)
@@ -29,11 +29,15 @@ class MovingAverageStrategy:
         long_average = sum(prices) / self.long_window
         spread = abs(short_average - long_average) / long_average
         strength = min(1.0, 0.5 + spread * 20)
-        if short_average > long_average and previous_short <= long_average:
+        previous_short = self._previous_short.get(tick.symbol, short_average)
+        previous_long = self._previous_long.get(tick.symbol, long_average)
+        if short_average > long_average and previous_short <= previous_long:
             action = SignalAction.BUY
-        elif short_average < long_average and previous_short >= long_average:
+        elif short_average < long_average and previous_short >= previous_long:
             action = SignalAction.SELL
         else:
             action = SignalAction.HOLD
+        self._previous_short[tick.symbol] = short_average
+        self._previous_long[tick.symbol] = long_average
         return Signal(tick.symbol, action, strength if action != SignalAction.HOLD else 0.0,
                       tick.price, self.strategy_id)

@@ -34,6 +34,8 @@ class InferenceWorker:
         self.last_id = "0-0"
 
     def process_once(self, count: int = 10) -> list[Signal]:
+        if count <= 0:
+            raise ValueError("count must be positive")
         signals: list[Signal] = []
         for message_id, payload in self.queue.read(self.last_id, count):
             signal = self.predictor.on_tick(tick_from_message(payload))

@@ -36,3 +36,22 @@ def test_strategy_holds_until_long_window_is_ready():
     strategy = MovingAverageStrategy(2, 3)
     signal = strategy.on_tick(tick_from_message(message("1-0", 100)[1]))
     assert signal.action == SignalAction.HOLD
+
+
+def test_strategy_emits_only_on_average_crossing():
+    strategy = MovingAverageStrategy(2, 3)
+    for price in (100, 100, 100):
+        assert strategy.on_tick(tick_from_message(message("1-0", price)[1])).action == SignalAction.HOLD
+
+    assert strategy.on_tick(tick_from_message(message("2-0", 101)[1])).action == SignalAction.BUY
+    assert strategy.on_tick(tick_from_message(message("3-0", 102)[1])).action == SignalAction.HOLD
+
+
+def test_worker_rejects_non_positive_batch_size():
+    worker = InferenceWorker(FakeQueue([]), MovingAverageStrategy(2, 3))
+    try:
+        worker.process_once(0)
+    except ValueError as exc:
+        assert "positive" in str(exc)
+    else:
+        raise AssertionError("invalid batch size was accepted")

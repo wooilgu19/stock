@@ -68,6 +68,8 @@ class OrderRequest:
     def __post_init__(self) -> None:
         if self.quantity <= 0 or self.price <= 0:
             raise ValueError("quantity and price must be positive")
+        if not 0 <= self.signal_strength <= 1:
+            raise ValueError("signal_strength must be between 0 and 1")
 
 
 @dataclass(frozen=True)
