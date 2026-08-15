@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
+from src.engine.portfolio import PortfolioState
 from src.engine.risk import RiskGate
 from src.models import OrderRequest, TradeLog
 
@@ -17,11 +18,13 @@ class OrderResult:
 
 class OrderManager:
     def __init__(self, repository: TradeRepository, risk_gate: RiskGate,
-                 paper_trading: bool = True, market_hours: MarketHours | None = None) -> None:
+                 paper_trading: bool = True, market_hours: MarketHours | None = None,
+                 portfolio: PortfolioState | None = None) -> None:
         self.repository = repository
         self.risk_gate = risk_gate
         self.paper_trading = paper_trading
         self.market_hours = market_hours
+        self.portfolio = portfolio
 
     def submit(self, order: OrderRequest) -> OrderResult:
         if order.client_order_id and self.repository.has_order_id(order.client_order_id):
@@ -31,6 +34,10 @@ class OrderManager:
         decision = self.risk_gate.check(order, self.repository.daily_realized_loss())
         if not decision.allowed:
             return OrderResult(False, reason=decision.reason)
+        if self.portfolio:
+            portfolio_reason = self.portfolio.check(order)
+            if portfolio_reason:
+                return OrderResult(False, reason=portfolio_reason)
 
         order_id = order.client_order_id or (
             f"paper-{order.timestamp.timestamp()}" if self.paper_trading else None
@@ -46,4 +53,6 @@ class OrderManager:
             timestamp=order.timestamp,
             broker_order_id=order_id,
         ))
+        if self.portfolio:
+            self.portfolio.apply(order)
         return OrderResult(True, order_id or f"trade-{trade_id}")
