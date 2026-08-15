@@ -1,0 +1,13 @@
+pandas
+numpy
+requests
+websockets
+python-dotenv
+redis
+fastapi
+uvicorn
+torch  # or tensorflow
+scikit-learn
+matplotlib
+ta  # Technical Analysis Library
+pytest
