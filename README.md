@@ -8,11 +8,18 @@ An asynchronous stock auto-trading system using the Korea Investment & Securitie
 - `src/database/sqlite.py`: SQLite persistence for trade logs.
 - `src/engine/risk.py`: Signal, order-value, and daily-loss checks.
 - `src/engine/order_manager.py`: Paper-trading-first order orchestration.
+- `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication and domestic stock price client.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.
 - `src/strategies/moving_average.py`: Deterministic baseline strategy for pipeline validation.
+
+The current paper-trading pipeline can be connected as:
+
+```text
+KIS WebSocket -> RedisQueue -> InferenceWorker -> SignalOrderRouter -> OrderManager -> SQLite
+```
 
 ## Development Setup
 
