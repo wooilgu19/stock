@@ -10,6 +10,9 @@ An asynchronous stock auto-trading system using the Korea Investment & Securitie
 - `src/engine/order_manager.py`: Paper-trading-first order orchestration.
 - `src/engine/market_hours.py`: Basic KRX weekday/session-hours guard.
 - `src/engine/portfolio.py`: Paper-trading cash and position checks.
+
+`PortfolioState.from_repository(...)` can restore paper cash and positions from
+persisted simulated/filled trades after a process restart.
 - `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication and domestic stock price client.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.

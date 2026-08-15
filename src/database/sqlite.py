@@ -64,3 +64,18 @@ class TradeRepository:
                 (order_id,),
             ).fetchone()
             return row is not None
+
+    def executed_trade_totals(self) -> list[tuple[str, str, int, float]]:
+        """Return aggregate quantities and values for persisted executions."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT symbol, side, SUM(quantity) AS quantity,
+                          SUM(quantity * price) AS value
+                   FROM trade_logs
+                   WHERE status IN ('filled', 'simulated')
+                   GROUP BY symbol, side"""
+            ).fetchall()
+            return [
+                (str(row["symbol"]), str(row["side"]), int(row["quantity"]), float(row["value"]))
+                for row in rows
+            ]
