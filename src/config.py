@@ -1,8 +1,11 @@
 """Environment-backed application settings."""
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 import os
+
+from src.engine.holiday_calendar import parse_holiday_dates
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -27,6 +30,9 @@ class Settings:
     min_signal_strength: float = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
     max_order_value: int = int(os.getenv("MAX_ORDER_VALUE", "1000000"))
     max_daily_loss: int = int(os.getenv("MAX_DAILY_LOSS", "100000"))
+    market_holidays: frozenset[date] = parse_holiday_dates(
+        os.getenv("MARKET_HOLIDAYS", "")
+    )
 
 
 settings = Settings()

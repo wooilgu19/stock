@@ -17,6 +17,13 @@ persisted simulated/filled trades after a process restart.
 `MarketHours(holidays={...})` accepts exchange holiday dates and blocks orders
 on those dates. The holiday set is intentionally supplied by the caller so a
 future KRX calendar provider can be added without changing order execution.
+
+Set `MARKET_HOLIDAYS` as a comma-separated ISO-date list, then pass
+`settings.market_holidays` to `MarketHours`, for example:
+
+```text
+MARKET_HOLIDAYS=2026-01-01,2026-03-02
+```
 - `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication and domestic stock price client.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
