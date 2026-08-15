@@ -3,6 +3,8 @@
 import json
 from typing import Any
 
+from src.models import Tick
+
 
 class RedisQueue:
     def __init__(self, host: str = "localhost", port: int = 6379, stream: str = "stock:ticks") -> None:
@@ -15,6 +17,14 @@ class RedisQueue:
 
     def publish(self, message: dict[str, Any]) -> str:
         return str(self.client.xadd(self.stream, {"payload": json.dumps(message)}))
+
+    def publish_tick(self, tick: Tick) -> str:
+        return self.publish({
+            "symbol": tick.symbol,
+            "price": tick.price,
+            "volume": tick.volume,
+            "timestamp": tick.timestamp.isoformat(),
+        })
 
     def read(self, last_id: str = "0-0", count: int = 10) -> list[tuple[str, dict[str, Any]]]:
         entries = self.client.xread({self.stream: last_id}, count=count, block=1000)

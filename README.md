@@ -9,6 +9,7 @@ An asynchronous stock auto-trading system using the Korea Investment & Securitie
 - `src/engine/risk.py`: Signal, order-value, and daily-loss checks.
 - `src/engine/order_manager.py`: Paper-trading-first order orchestration.
 - `src/api/kis_rest.py`: KIS authentication and domestic stock price client.
+- `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 
 ## Development Setup
