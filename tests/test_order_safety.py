@@ -62,3 +62,40 @@ def test_market_hours_rejects_configured_holiday():
     session_time = datetime(2026, 8, 14, 1, 0, tzinfo=timezone.utc)
 
     assert not session.is_open(session_time)
+
+
+def test_live_order_requires_explicit_executor(tmp_path):
+    manager = OrderManager(
+        TradeRepository(tmp_path / "trades.sqlite3"),
+        RiskGate(0.6, 1_000_000, 100_000),
+        paper_trading=False,
+    )
+
+    result = manager.submit(make_order(datetime(2026, 8, 14, 1, 0, tzinfo=timezone.utc)))
+
+    assert not result.accepted
+    assert result.reason == "live order executor is not configured"
+
+
+class FakeExecutor:
+    def __init__(self):
+        self.orders = []
+
+    def submit(self, order):
+        self.orders.append(order)
+        return "kis-123"
+
+
+def test_live_order_is_persisted_only_after_executor_accepts(tmp_path):
+    executor = FakeExecutor()
+    manager = OrderManager(
+        TradeRepository(tmp_path / "trades.sqlite3"),
+        RiskGate(0.6, 1_000_000, 100_000),
+        paper_trading=False,
+        executor=executor,
+    )
+
+    result = manager.submit(make_order(datetime(2026, 8, 14, 1, 0, tzinfo=timezone.utc)))
+
+    assert result.accepted and result.order_id == "kis-123"
+    assert len(executor.orders) == 1

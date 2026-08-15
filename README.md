@@ -58,4 +58,8 @@ KIS WebSocket -> RedisQueue -> InferenceWorker -> SignalOrderRouter -> OrderMana
 
 ## Safety Notes
 
-Live order submission is not connected yet. Keep paper trading enabled until the KIS order adapter, duplicate-order protection, balance and position checks, market-hours checks, and operational monitoring are implemented and verified.
+Live order submission is intentionally blocked unless an explicit broker
+executor is injected into `OrderManager`. The manager never records a live
+order as `submitted` before that executor confirms acceptance. Keep paper
+trading enabled until the KIS order adapter and operational monitoring are
+implemented and verified.
