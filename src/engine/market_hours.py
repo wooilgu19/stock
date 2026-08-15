@@ -6,10 +6,19 @@ calendars should be added before enabling live order submission.
 
 from collections.abc import Iterable
 from datetime import date, datetime, time
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from src.config import Settings
 
 
 class MarketHours:
+    @classmethod
+    def from_settings(cls, settings: "Settings") -> "MarketHours":
+        """Build the session guard from application settings."""
+        return cls(holidays=settings.market_holidays)
+
     def __init__(
         self,
         timezone_name: str = "Asia/Seoul",
