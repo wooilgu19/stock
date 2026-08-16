@@ -20,6 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "check-kis-auth", help="perform an explicit KIS authentication smoke check"
     )
+    price = subparsers.add_parser(
+        "check-kis-price", help="perform a read-only KIS price smoke check"
+    )
+    price.add_argument("symbol", help="six-digit domestic stock symbol")
     return parser
 
 
@@ -41,6 +45,18 @@ def main(argv: list[str] | None = None) -> int:
             settings.kis_appsecret,
         ).access_token()
         print("KIS authentication succeeded")
+        return 0
+    if args.command == "check-kis-price":
+        if not args.symbol.isdigit() or len(args.symbol) != 6:
+            raise ValueError("symbol must be a 6-digit code")
+        settings = Settings()
+        settings.validate_for_live()
+        price = KISRestClient(
+            settings.kis_base_url,
+            settings.kis_appkey,
+            settings.kis_appsecret,
+        ).current_price(args.symbol)
+        print(f"KIS price succeeded: {args.symbol}={price:g}")
         return 0
     return 2
 

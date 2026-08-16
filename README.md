@@ -98,6 +98,8 @@ python -m src.cli validate-config
 python -m src.cli validate-config --live
 # Explicitly performs a network request; no order is submitted.
 python -m src.cli check-kis-auth
+# Read-only market-data smoke check; no order is submitted.
+python -m src.cli check-kis-price 005930
 ```
 
 ## Safety Notes
