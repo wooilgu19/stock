@@ -21,6 +21,9 @@ class SignalAction(str, Enum):
     HOLD = "hold"
 
 
+ORDER_LIFECYCLE_STATUSES = frozenset({"submitted", "filled", "cancelled", "rejected"})
+
+
 @dataclass(frozen=True)
 class Tick:
     symbol: str
@@ -111,5 +114,7 @@ class OrderStatusUpdate:
     def __post_init__(self) -> None:
         if not self.broker_order_id.strip():
             raise ValueError("broker_order_id is required")
-        if not self.status.strip():
-            raise ValueError("status is required")
+        normalized_status = self.status.strip().lower()
+        if normalized_status not in ORDER_LIFECYCLE_STATUSES:
+            raise ValueError("unsupported order status")
+        object.__setattr__(self, "status", normalized_status)

@@ -4,7 +4,7 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from src.models import Side, TradeLog
+from src.models import ORDER_LIFECYCLE_STATUSES, Side, TradeLog
 
 
 class TradeRepository:
@@ -92,6 +92,8 @@ class TradeRepository:
 
     def update_order_status(self, order_id: str, status: str) -> bool:
         """Update a known submitted order and report whether it was changed."""
+        if status not in ORDER_LIFECYCLE_STATUSES:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 "UPDATE trade_logs SET status = ? "
