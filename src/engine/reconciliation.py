@@ -16,6 +16,8 @@ class ReconciliationResult:
 class OrderReconciler:
     """Apply broker updates without allowing unknown orders into local state."""
 
+    _TERMINAL_STATUSES = frozenset({"filled", "cancelled", "rejected"})
+
     def __init__(self, repository: TradeRepository,
                  fetch_updates: Callable[[], Iterable[OrderStatusUpdate]]) -> None:
         self.repository = repository
@@ -30,7 +32,8 @@ class OrderReconciler:
                 ignored += 1
                 continue
             if self.repository.update_order_status(update.broker_order_id, update.status):
-                pending.remove(update.broker_order_id)
+                if update.status in self._TERMINAL_STATUSES:
+                    pending.remove(update.broker_order_id)
                 updated += 1
             else:
                 ignored += 1

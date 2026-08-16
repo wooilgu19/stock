@@ -40,3 +40,20 @@ def test_reconciler_does_not_reapply_terminal_order(tmp_path):
 
     assert result.updated == 0
     assert result.ignored == 1
+
+
+def test_reconciler_keeps_submitted_order_pending_until_terminal(tmp_path):
+    repository = TradeRepository(tmp_path / "trades.sqlite3")
+    repository.save(TradeLog(
+        symbol="005930", side=Side.BUY, quantity=1, price=70000,
+        strategy_id="baseline", signal_strength=0.8, status="submitted",
+        broker_order_id="kis-1",
+    ))
+    reconciler = OrderReconciler(repository, lambda: [
+        OrderStatusUpdate("kis-1", "submitted"),
+    ])
+
+    result = reconciler.reconcile()
+
+    assert result == type(result)(updated=1, ignored=0)
+    assert repository.pending_order_ids() == {"kis-1"}
