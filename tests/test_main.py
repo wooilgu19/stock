@@ -1,7 +1,10 @@
 import asyncio
 import threading
 
-from src.main import _run_collector, build_parser
+from src.engine.order_manager import OrderResult
+from src.main import _log_signal_result, _run_collector, _run_status_logger, build_parser
+from src.models import Signal, SignalAction
+from src.monitoring.metrics import RuntimeMetrics
 
 
 def test_build_parser_defaults():
@@ -10,6 +13,39 @@ def test_build_parser_defaults():
     assert args.quantity == 1
     assert args.poll_interval == 1.0
     assert args.health_port is None
+    assert args.status_interval == 10.0
+
+
+def test_log_signal_result_ignores_hold_signals(caplog):
+    _log_signal_result(
+        Signal("005930", SignalAction.HOLD, 0.0, 70_000, "baseline"), None,
+    )
+    assert "005930" not in caplog.text
+
+
+def test_log_signal_result_logs_accepted_and_rejected_orders(caplog):
+    buy = Signal("005930", SignalAction.BUY, 0.8, 70_000, "baseline")
+    with caplog.at_level("INFO"):
+        _log_signal_result(buy, OrderResult(True, order_id="trade-1"))
+        _log_signal_result(buy, OrderResult(False, reason="market is closed"))
+    assert "accepted" in caplog.text and "trade-1" in caplog.text
+    assert "rejected" in caplog.text and "market is closed" in caplog.text
+
+
+def test_status_logger_stops_when_stop_event_is_set(caplog):
+    metrics = RuntimeMetrics()
+    metrics.record(signals=2)
+    stop_event = threading.Event()
+
+    thread = threading.Thread(target=_run_status_logger, args=(metrics, stop_event, 0.02))
+    with caplog.at_level("INFO"):
+        thread.start()
+        stop_event.wait(0.06)  # let at least one snapshot fire
+        stop_event.set()
+        thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert "signals=2" in caplog.text
 
 
 class ForeverStreamClient:
