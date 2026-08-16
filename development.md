@@ -139,7 +139,7 @@ TELEGRAM_CHAT_ID=...
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-현재 기준 테스트 수는 113개입니다.
+현재 기준 테스트 수는 122개입니다.
 
 설정만 검증하는 명령은 network request를 수행하지 않습니다.
 
@@ -160,13 +160,34 @@ python -m src.cli check-kis-price 005930
 
 ## 5. 애플리케이션 조립 및 실행
 
-현재 저장소는 의존성 조립 API를 제공하며, 자동매매용 단일 `main` 실행기는
-아직 제공하지 않습니다. 애플리케이션은 predictor와 queue를 주입해 조립합니다.
+`src/main.py`가 틱 수집기(KIS WebSocket → Redis)와 매매 루프
+(`TradingRuntime`)를 한 프로세스로 묶어 실행합니다. 하나가 죽으면(예: 웹소켓
+재연결 한도 초과) 다른 하나도 함께 정지하도록 되어 있어, 절반만 살아있는
+상태로 조용히 방치되지 않습니다.
+
+```powershell
+# 종목 코드는 6자리, 여러 개 지정 가능
+python -m src.main 005930 000660 --quantity 1 --poll-interval 1.0 --health-port 8080
+```
+
+- `--quantity`: 종목 구분 없이 신호 1건당 매매 수량 (기본 1주). 종목별로
+  다르게 주려면 아직 코드 수정이 필요합니다(`SignalOrderRouter`는 이를
+  지원하지만 `src/main.py`는 아직 단일 값만 CLI로 받습니다).
+- `--poll-interval`: 매매 루프 주기(초).
+- `--health-port`: 지정하면 `/health`, `/metrics`를 해당 포트에 띄웁니다.
+  생략하면 health 서버 없이 수집기+매매 루프만 돕니다.
+- `Ctrl+C`(SIGINT) 또는 SIGTERM으로 정상 종료됩니다.
+
+전략(predictor)은 현재 `src/strategies/moving_average.py`의
+`MovingAverageStrategy`로 고정되어 있습니다. 딥러닝 모델을 붙이려면
+`src/main.py`의 `_run_trading_loop`에서 predictor 생성 부분만 교체하면
+됩니다.
+
+프로그램 안에서 직접 조립하고 싶다면 다음과 같이 API를 사용할 수 있습니다:
 
 ```python
 from src.application import build_runtime
 from src.config import Settings
-from src.inference.worker import SignalPredictor
 from src.monitoring.metrics import RuntimeMetrics
 from threading import Event
 
@@ -183,9 +204,8 @@ runtime = build_runtime(
 runtime.run(Event(), count=10)
 ```
 
-실제 pipeline에서는 RedisQueue를 queue로 주입하고, KISWebSocketClient의
-`stream_to_queue()`를 별도 async task/process로 실행해야 합니다. baseline
-검증에는 `src/strategies/moving_average.py`를 predictor로 사용할 수 있습니다.
+이 경우에도 `RedisQueue`를 queue로 주입하고, `KISWebSocketClient`의
+`stream_to_queue()`를 별도 async task/process로 실행해야 합니다.
 
 ## 6. Health 및 Metrics
 

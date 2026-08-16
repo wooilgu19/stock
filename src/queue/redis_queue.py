@@ -11,26 +11,36 @@ class RedisQueueError(RuntimeError):
 
 
 class RedisQueue:
-    def __init__(self, host: str = "localhost", port: int = 6379, stream: str = "stock:ticks") -> None:
+    def __init__(self, host: str = "localhost", port: int = 6379, stream: str = "stock:ticks",
+                 maxlen: int = 100_000) -> None:
         if not host.strip():
             raise ValueError("host is required")
         if not 1 <= port <= 65_535:
             raise ValueError("port must be between 1 and 65535")
         if not stream.strip():
             raise ValueError("stream is required")
+        if maxlen <= 0:
+            raise ValueError("maxlen must be positive")
         try:
             import redis
         except ImportError as exc:
             raise RuntimeError("redis package is required to use RedisQueue") from exc
-        self.client = redis.Redis(host=host, port=port, decode_responses=True)
+        # redis-py negotiates RESP3 (a HELLO handshake) by default; Redis
+        # servers older than 6.0 (and some managed/compatible services)
+        # don't implement HELLO and reject the connection outright. RESP2
+        # is all this adapter needs, so pin it for broad compatibility.
+        self.client = redis.Redis(host=host, port=port, decode_responses=True,
+                                  socket_connect_timeout=2.0, socket_timeout=2.0,
+                                  protocol=2)
         self.stream = stream
+        self.maxlen = maxlen
         self._redis_error = redis.exceptions.RedisError
 
     def publish(self, message: dict[str, Any]) -> str:
         if not isinstance(message, dict):
             raise TypeError("message must be a dictionary")
         try:
-            return str(self.client.xadd(self.stream, {"payload": json.dumps(message)}))
+            return str(self.client.xadd(self.stream, {"payload": json.dumps(message)}, maxlen=self.maxlen, approximate=True))
         except self._redis_error as exc:
             raise RedisQueueError("Redis publish failed") from exc
 
