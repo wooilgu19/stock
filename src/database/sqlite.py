@@ -70,6 +70,25 @@ class TradeRepository:
             ).fetchone()
             return row is not None
 
+    def pending_order_ids(self) -> set[str]:
+        """Return broker ids that still need a lifecycle update."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT broker_order_id FROM trade_logs "
+                "WHERE status = 'submitted' AND broker_order_id IS NOT NULL"
+            ).fetchall()
+            return {str(row["broker_order_id"]) for row in rows}
+
+    def update_order_status(self, order_id: str, status: str) -> bool:
+        """Update a known submitted order and report whether it was changed."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE trade_logs SET status = ? "
+                "WHERE broker_order_id = ? AND status = 'submitted'",
+                (status, order_id),
+            )
+            return cursor.rowcount > 0
+
     def executed_trade_totals(self) -> list[tuple[str, str, int, float]]:
         """Return aggregate quantities and values for persisted executions."""
         with self._connect() as connection:

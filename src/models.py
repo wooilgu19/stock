@@ -99,3 +99,17 @@ class TradeLog:
             "status": self.status,
             "broker_order_id": self.broker_order_id,
         }
+
+
+@dataclass(frozen=True)
+class OrderStatusUpdate:
+    """Broker-reported lifecycle update for a previously submitted order."""
+
+    broker_order_id: str
+    status: str
+
+    def __post_init__(self) -> None:
+        if not self.broker_order_id.strip():
+            raise ValueError("broker_order_id is required")
+        if not self.status.strip():
+            raise ValueError("status is required")
