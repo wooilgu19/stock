@@ -96,6 +96,8 @@ network calls:
 ```powershell
 python -m src.cli validate-config
 python -m src.cli validate-config --live
+# Explicitly performs a network request; no order is submitted.
+python -m src.cli check-kis-auth
 ```
 
 ## Safety Notes
