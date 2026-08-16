@@ -13,6 +13,12 @@ class RiskDecision:
 
 class RiskGate:
     def __init__(self, min_signal_strength: float, max_order_value: int, max_daily_loss: int) -> None:
+        if not 0 <= min_signal_strength <= 1:
+            raise ValueError("min_signal_strength must be between 0 and 1")
+        if max_order_value < 0:
+            raise ValueError("max_order_value cannot be negative")
+        if max_daily_loss < 0:
+            raise ValueError("max_daily_loss cannot be negative")
         self.min_signal_strength = min_signal_strength
         self.max_order_value = max_order_value
         self.max_daily_loss = max_daily_loss

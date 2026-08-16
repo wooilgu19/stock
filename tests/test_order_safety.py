@@ -1,5 +1,7 @@
 from datetime import date, datetime, time, timezone
 
+import pytest
+
 from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
 from src.engine.order_manager import OrderManager
@@ -20,6 +22,15 @@ def make_manager(tmp_path, market_hours=None):
         RiskGate(0.6, 1_000_000, 100_000),
         market_hours=market_hours,
     )
+
+
+def test_risk_gate_rejects_invalid_limits():
+    with pytest.raises(ValueError, match="min_signal_strength"):
+        RiskGate(-0.1, 1_000_000, 100_000)
+    with pytest.raises(ValueError, match="max_order_value"):
+        RiskGate(0.6, -1, 100_000)
+    with pytest.raises(ValueError, match="max_daily_loss"):
+        RiskGate(0.6, 1_000_000, -1)
 
 
 def test_duplicate_client_order_is_not_saved_twice(tmp_path):
