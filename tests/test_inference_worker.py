@@ -1,5 +1,8 @@
+import pytest
+
 from src.inference.worker import InferenceWorker, tick_from_message
 from src.models import SignalAction
+from src.queue.redis_queue import RedisQueue, RedisQueueError
 from src.strategies.moving_average import MovingAverageStrategy
 
 
@@ -55,3 +58,10 @@ def test_worker_rejects_non_positive_batch_size():
         assert "positive" in str(exc)
     else:
         raise AssertionError("invalid batch size was accepted")
+
+
+def test_redis_payload_decoder_rejects_malformed_entries():
+    with pytest.raises(RedisQueueError, match="valid JSON"):
+        RedisQueue._decode_payload({"payload": "not-json"})
+    with pytest.raises(RedisQueueError, match="not an object"):
+        RedisQueue._decode_payload({"payload": "[]"})
