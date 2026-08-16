@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+import requests
 
 from src.api.kis_rest import (
     AccessToken, KISAPIError, KISOrderExecutor, KISOrderStatusProvider, KISRestClient,
@@ -44,6 +45,25 @@ def test_api_error_is_exposed():
     session = FakeSession([FakeResponse({"rt_cd": "1", "msg1": "bad credentials"})])
     client = KISRestClient("https://example.test", "key", "secret", session=session)
     with pytest.raises(KISAPIError, match="bad credentials"):
+        client.access_token()
+
+
+def test_transport_error_is_wrapped_as_kis_api_error():
+    class FailingSession:
+        def request(self, method, url, **kwargs):
+            raise requests.Timeout("connection timed out")
+
+    client = KISRestClient("https://example.test", "key", "secret", session=FailingSession())
+
+    with pytest.raises(KISAPIError, match="connection timed out"):
+        client.access_token()
+
+
+def test_non_object_json_response_is_rejected():
+    session = FakeSession([FakeResponse(["unexpected", "array"])])
+    client = KISRestClient("https://example.test", "key", "secret", session=session)
+
+    with pytest.raises(KISAPIError, match="not an object"):
         client.access_token()
 
 

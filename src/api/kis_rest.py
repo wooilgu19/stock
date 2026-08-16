@@ -39,12 +39,17 @@ class KISRestClient:
         self._token: AccessToken | None = None
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        response = self.session.request(method, self.base_url + path,
-                                        timeout=self.timeout, **kwargs)
+        try:
+            response = self.session.request(method, self.base_url + path,
+                                            timeout=self.timeout, **kwargs)
+        except requests.RequestException as exc:
+            raise KISAPIError(f"KIS request failed: {exc}") from exc
         try:
             body = response.json()
         except ValueError as exc:
             raise KISAPIError(f"KIS returned non-JSON response ({response.status_code})") from exc
+        if not isinstance(body, dict):
+            raise KISAPIError("KIS response body was not an object")
         if not response.ok or body.get("rt_cd") not in (None, "0"):
             message = body.get("msg1", "unknown KIS API error")
             raise KISAPIError(f"KIS request failed: {message}")
