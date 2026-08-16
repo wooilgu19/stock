@@ -3,9 +3,11 @@
 from fastapi import FastAPI, Response
 
 from src.monitoring.health import HealthMonitor
+from src.monitoring.metrics import RuntimeMetrics
 
 
-def create_health_app(monitor: HealthMonitor) -> FastAPI:
+def create_health_app(monitor: HealthMonitor,
+                      metrics: RuntimeMetrics | None = None) -> FastAPI:
     """Create a small FastAPI app exposing dependency readiness.
 
     The endpoint returns HTTP 503 when any configured dependency is down while
@@ -19,5 +21,9 @@ def create_health_app(monitor: HealthMonitor) -> FastAPI:
         if not report.healthy:
             response.status_code = 503
         return report.as_dict()
+
+    @app.get("/metrics")
+    def metrics_endpoint() -> dict:
+        return metrics.as_dict() if metrics is not None else RuntimeMetrics().as_dict()
 
     return app

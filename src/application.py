@@ -67,13 +67,14 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
     )
 
 
-def build_health_app(settings: Settings, queue: Any = None) -> FastAPI:
+def build_health_app(settings: Settings, queue: Any = None,
+                     metrics: RuntimeMetrics | None = None) -> FastAPI:
     """Build the readiness app from settings without contacting dependencies."""
     health_queue = queue if queue is not None else RedisQueue(
         settings.redis_host, settings.redis_port
     )
     repository = TradeRepository(settings.database_path)
-    return create_health_app(HealthMonitor(repository, health_queue.ping))
+    return create_health_app(HealthMonitor(repository, health_queue.ping), metrics)
 
 
 def build_reconciler(settings: Settings, session: Any = None) -> OrderReconciler | None:

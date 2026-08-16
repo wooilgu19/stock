@@ -42,7 +42,7 @@ Live reconciliation checks recent broker order history. Set
   order manager without making network calls during startup.
 - `src/monitoring/health.py`: Non-mutating database and queue readiness checks.
 - `src/api/health.py`: FastAPI `/health` endpoint returning 503 on dependency
-  failure.
+  failure, plus `/metrics` for runtime counters.
 - `src/engine/reconciliation.py`: Applies broker lifecycle updates only to
   known locally submitted orders.
 - `build_health_app(settings)` in `src/application.py` wires the endpoint to
