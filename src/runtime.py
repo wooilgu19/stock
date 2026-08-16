@@ -1,6 +1,8 @@
 """Runtime loop for the assembled trading pipeline."""
 
+import logging
 from dataclasses import dataclass
+from collections.abc import Callable
 from threading import Event
 from time import monotonic
 
@@ -8,6 +10,9 @@ from src.engine.reconciliation import OrderReconciler, ReconciliationResult
 from src.inference.worker import InferenceWorker
 from src.monitoring.metrics import RuntimeMetrics
 from src.models import Signal
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -23,13 +28,15 @@ class TradingRuntime:
     def __init__(self, worker: InferenceWorker,
                  reconciler: OrderReconciler | None = None,
                  poll_interval: float = 1.0,
-                 metrics: RuntimeMetrics | None = None) -> None:
+                 metrics: RuntimeMetrics | None = None,
+                 on_error: Callable[[str], None] | None = None) -> None:
         if poll_interval < 0:
             raise ValueError("poll_interval cannot be negative")
         self.worker = worker
         self.reconciler = reconciler
         self.poll_interval = poll_interval
         self.metrics = metrics
+        self.on_error = on_error
 
     def run_once(self, count: int = 10) -> RuntimeCycle:
         errors: list[str] = []
@@ -48,6 +55,13 @@ class TradingRuntime:
         cycle = RuntimeCycle(signals, reconciliation, tuple(errors))
         if self.metrics:
             self.metrics.record(len(cycle.signals), cycle.errors, cycle.reconciliation)
+        for error in cycle.errors:
+            logger.error("trading runtime error: %s", error)
+            if self.on_error:
+                try:
+                    self.on_error(error)
+                except Exception:
+                    logger.exception("runtime error handler failed")
         return cycle
 
     @staticmethod

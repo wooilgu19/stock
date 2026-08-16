@@ -91,6 +91,29 @@ def test_runtime_records_metrics():
     }
 
 
+def test_runtime_notifies_error_handler_without_stopping():
+    errors = []
+    runtime = TradingRuntime(
+        FailingWorker(), poll_interval=0, on_error=errors.append,
+    )
+
+    cycle = runtime.run_once()
+
+    assert cycle.errors == ("worker: queue unavailable",)
+    assert errors == ["worker: queue unavailable"]
+
+
+def test_runtime_ignores_error_handler_failure():
+    def failing_handler(error):
+        raise RuntimeError("notification unavailable")
+
+    cycle = TradingRuntime(
+        FailingWorker(), poll_interval=0, on_error=failing_handler,
+    ).run_once()
+
+    assert cycle.errors == ("worker: queue unavailable",)
+
+
 def test_runtime_rejects_invalid_options():
     with pytest.raises(ValueError):
         TradingRuntime(FakeWorker(), poll_interval=-1)

@@ -125,11 +125,13 @@ def build_runtime(settings: Settings, predictor: SignalPredictor,
                   queue: TickQueue | None = None, quantity: Any = 1,
                   on_result: Any = None, poll_interval: float = 1.0,
                   reconciler: OrderReconciler | None = None,
-                  metrics: RuntimeMetrics | None = None) -> TradingRuntime:
+                  metrics: RuntimeMetrics | None = None,
+                  on_error: Any = None) -> TradingRuntime:
     """Build a stoppable runtime around the configured trading pipeline."""
     worker = build_pipeline(settings, predictor, queue, quantity, on_result)
     active_reconciler = reconciler if reconciler is not None else build_reconciler(settings)
     return TradingRuntime(
         worker, reconciler=active_reconciler, poll_interval=poll_interval,
         metrics=metrics,
+        on_error=on_error,
     )
