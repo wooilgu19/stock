@@ -82,6 +82,8 @@ KIS WebSocket -> RedisQueue -> InferenceWorker -> SignalOrderRouter -> OrderMana
 
 3. Install dependencies: `python -m pip install -r requirements.txt`
 4. Copy `.env.example` to `.env` and fill in credentials.
+   The application loads `.env` automatically; explicitly exported environment
+   variables take precedence.
 5. Keep `PAPER_TRADING=true` during development.
 6. Set `AUTOMATION_MODE=auto` to enable automatic signal-to-order processing.
    This setting does not enable live trading; `PAPER_TRADING` remains an

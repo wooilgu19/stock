@@ -5,7 +5,12 @@ from datetime import date
 from pathlib import Path
 import os
 
+from dotenv import load_dotenv
+
 from src.engine.holiday_calendar import parse_holiday_dates
+
+
+load_dotenv()
 
 
 def _env_bool(name: str, default: bool) -> bool:
