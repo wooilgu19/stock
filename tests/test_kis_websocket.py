@@ -34,6 +34,8 @@ def test_subscription_message_has_kis_contract():
 def test_subscription_message_requires_approval_key():
     with pytest.raises(ValueError, match="approval_key"):
         KISWebSocketClient.subscription_message("", "005930")
+    with pytest.raises(ValueError, match="6-digit"):
+        KISWebSocketClient.subscription_message("approval", "ABC")
 
 
 def test_approval_key_is_parsed_and_transport_errors_are_wrapped():

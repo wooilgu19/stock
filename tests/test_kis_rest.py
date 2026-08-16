@@ -48,6 +48,13 @@ def test_rest_client_rejects_invalid_url_and_timeout():
         KISRestClient("https://example.test", "key", "secret", timeout=0)
 
 
+def test_current_price_rejects_invalid_symbol_before_request():
+    client = KISRestClient("https://example.test", "key", "secret", session=FakeSession([]))
+
+    with pytest.raises(ValueError, match="6-digit"):
+        client.current_price("ABC")
+
+
 def test_api_error_is_exposed():
     session = FakeSession([FakeResponse({"rt_cd": "1", "msg1": "bad credentials"})])
     client = KISRestClient("https://example.test", "key", "secret", session=session)

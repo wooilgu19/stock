@@ -88,6 +88,8 @@ class KISRestClient:
         return self._token.value
 
     def current_price(self, symbol: str, account_type: str = "01") -> float:
+        if not symbol.isdigit() or len(symbol) != 6:
+            raise ValueError("domestic stock symbol must be a 6-digit code")
         body = self._request(
             "GET",
             "/uapi/domestic-stock/v1/quotations/inquire-price",

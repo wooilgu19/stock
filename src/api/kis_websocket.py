@@ -68,8 +68,8 @@ class KISWebSocketClient:
     def subscription_message(approval_key: str, symbol: str, *, subscribe: bool = True) -> str:
         if not approval_key.strip():
             raise ValueError("approval_key is required")
-        if not symbol.strip():
-            raise ValueError("symbol is required")
+        if not symbol.isdigit() or len(symbol) != 6:
+            raise ValueError("domestic stock symbol must be a 6-digit code")
         return json.dumps({
             "header": {
                 "approval_key": approval_key,
