@@ -10,6 +10,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def normalize_timestamp(value: datetime) -> datetime:
+    """Return a timezone-aware UTC timestamp for persisted trade data."""
+    if not isinstance(value, datetime):
+        raise ValueError("timestamp must be a datetime")
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class Side(str, Enum):
     BUY = "buy"
     SELL = "sell"
@@ -36,6 +45,7 @@ class Tick:
             raise ValueError("symbol is required")
         if self.price <= 0 or self.volume < 0:
             raise ValueError("price must be positive and volume cannot be negative")
+        object.__setattr__(self, "timestamp", normalize_timestamp(self.timestamp))
 
 
 @dataclass(frozen=True)
@@ -52,6 +62,7 @@ class Signal:
             raise ValueError("strength must be between 0 and 1")
         if self.action != SignalAction.HOLD and self.price <= 0:
             raise ValueError("trade signal price must be positive")
+        object.__setattr__(self, "timestamp", normalize_timestamp(self.timestamp))
 
 
 @dataclass(frozen=True)
@@ -74,6 +85,7 @@ class OrderRequest:
             raise ValueError("quantity and price must be positive")
         if not 0 <= self.signal_strength <= 1:
             raise ValueError("signal_strength must be between 0 and 1")
+        object.__setattr__(self, "timestamp", normalize_timestamp(self.timestamp))
 
 
 @dataclass(frozen=True)
@@ -88,6 +100,9 @@ class TradeLog:
     timestamp: datetime = field(default_factory=utc_now)
     broker_order_id: str | None = None
     id: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "timestamp", normalize_timestamp(self.timestamp))
 
     def as_dict(self) -> dict[str, Any]:
         return {

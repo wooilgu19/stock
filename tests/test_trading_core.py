@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from src.database.sqlite import TradeRepository
-from src.models import Side, TradeLog
+from src.models import OrderRequest, Side, Tick, TradeLog
 
 
 def test_daily_realized_loss_excludes_other_days(tmp_path):
@@ -14,6 +14,17 @@ def test_daily_realized_loss_excludes_other_days(tmp_path):
         ))
 
     assert repository.daily_realized_loss(date(2026, 8, 14)) == 250
+
+
+def test_trade_timestamps_are_normalized_to_utc():
+    naive_tick = Tick("005930", 100, 1, datetime(2026, 8, 14, 9))
+    local_order = OrderRequest(
+        "005930", Side.BUY, 1, 100, "test", 0.8,
+        timestamp=datetime(2026, 8, 14, 9),
+    )
+
+    assert naive_tick.timestamp.tzinfo is timezone.utc
+    assert local_order.timestamp.tzinfo is timezone.utc
 from src.engine.order_manager import OrderManager
 from src.engine.risk import RiskGate
 from src.models import OrderRequest, Side, Tick
