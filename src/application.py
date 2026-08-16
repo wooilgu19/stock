@@ -16,6 +16,7 @@ from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
 from src.engine.order_manager import OrderManager
 from src.engine.risk import RiskGate
+from src.engine.signal_router import SignalOrderRouter
 from src.monitoring.health import HealthMonitor
 from src.queue.redis_queue import RedisQueue
 
@@ -63,3 +64,14 @@ def build_health_app(settings: Settings, queue: Any = None) -> FastAPI:
     )
     repository = TradeRepository(settings.database_path)
     return create_health_app(HealthMonitor(repository, health_queue.ping))
+
+
+def build_signal_router(settings: Settings, order_manager: OrderManager,
+                        quantity: Any = 1, on_result: Any = None) -> SignalOrderRouter:
+    """Build a signal router whose automation behavior follows settings."""
+    return SignalOrderRouter(
+        order_manager,
+        quantity=quantity,
+        on_result=on_result,
+        automation_enabled=settings.automation_enabled,
+    )

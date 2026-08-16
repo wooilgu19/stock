@@ -19,6 +19,7 @@ class SignalOrderRouter:
         order_manager: OrderManager,
         quantity: int | Mapping[str, int] = 1,
         on_result: Callable[[Signal, OrderResult], None] | None = None,
+        automation_enabled: bool = True,
     ) -> None:
         if isinstance(quantity, int):
             if quantity <= 0:
@@ -31,6 +32,7 @@ class SignalOrderRouter:
         self.order_manager = order_manager
         self.quantity = quantity
         self.on_result = on_result
+        self.automation_enabled = automation_enabled
 
     def _quantity_for(self, symbol: str) -> int:
         if isinstance(self.quantity, int):
@@ -41,7 +43,7 @@ class SignalOrderRouter:
             raise ValueError(f"no order quantity configured for {symbol}") from exc
 
     def route(self, signal: Signal) -> OrderResult | None:
-        if signal.action == SignalAction.HOLD:
+        if signal.action == SignalAction.HOLD or not self.automation_enabled:
             return None
 
         side = Side.BUY if signal.action == SignalAction.BUY else Side.SELL

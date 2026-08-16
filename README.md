@@ -40,6 +40,8 @@ market_hours = MarketHours.from_settings(settings)
   known locally submitted orders.
 - `build_health_app(settings)` in `src/application.py` wires the endpoint to
   configured SQLite and Redis dependencies without probing them at startup.
+- `build_signal_router(settings, order_manager, ...)` applies
+  `AUTOMATION_MODE`; manual mode drops actionable signals before order creation.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.
@@ -64,6 +66,9 @@ KIS WebSocket -> RedisQueue -> InferenceWorker -> SignalOrderRouter -> OrderMana
 3. Install dependencies: `python -m pip install -r requirements.txt`
 4. Copy `.env.example` to `.env` and fill in credentials.
 5. Keep `PAPER_TRADING=true` during development.
+6. Set `AUTOMATION_MODE=auto` to enable automatic signal-to-order processing.
+   This setting does not enable live trading; `PAPER_TRADING` remains an
+   independent safety switch.
 6. Run tests: `pytest -q`
 
 ## Safety Notes

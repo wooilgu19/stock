@@ -27,12 +27,21 @@ class Settings:
     database_path: Path = Path(os.getenv("DATABASE_PATH", "./data/trading.sqlite3"))
     model_path: Path = Path(os.getenv("MODEL_PATH", "./models/latest_model.pt"))
     paper_trading: bool = _env_bool("PAPER_TRADING", True)
+    automation_mode: str = os.getenv("AUTOMATION_MODE", "auto").strip().lower()
     min_signal_strength: float = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
     max_order_value: int = int(os.getenv("MAX_ORDER_VALUE", "1000000"))
     max_daily_loss: int = int(os.getenv("MAX_DAILY_LOSS", "100000"))
     market_holidays: frozenset[date] = parse_holiday_dates(
         os.getenv("MARKET_HOLIDAYS", "")
     )
+
+    def __post_init__(self) -> None:
+        if self.automation_mode not in {"auto", "manual"}:
+            raise ValueError("automation_mode must be 'auto' or 'manual'")
+
+    @property
+    def automation_enabled(self) -> bool:
+        return self.automation_mode == "auto"
 
     def validate_for_live(self) -> None:
         """Reject incomplete credentials before constructing a live pipeline."""
