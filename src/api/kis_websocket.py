@@ -33,23 +33,33 @@ class KISWebSocketClient:
         self.http_session = http_session or requests.Session()
 
     def approval_key(self) -> str:
-        response = self.http_session.post(
-            self.base_url + "/oauth2/Approval",
-            headers={"content-type": "application/json"},
-            json={"grant_type": "client_credentials", "appkey": self.app_key,
-                  "secretkey": self.app_secret},
-            timeout=self.timeout,
-        )
+        try:
+            response = self.http_session.post(
+                self.base_url + "/oauth2/Approval",
+                headers={"content-type": "application/json"},
+                json={"grant_type": "client_credentials", "appkey": self.app_key,
+                      "secretkey": self.app_secret},
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            raise KISWebSocketError(f"approval request failed: {exc}") from exc
         if not response.ok:
             raise KISWebSocketError(f"approval request failed ({response.status_code})")
         try:
             body = response.json()
-            return body["approval_key"]
-        except (ValueError, KeyError) as exc:
+        except ValueError as exc:
             raise KISWebSocketError("approval response did not contain approval_key") from exc
+        if not isinstance(body, dict):
+            raise KISWebSocketError("approval response was not an object")
+        approval_key = body.get("approval_key")
+        if not isinstance(approval_key, str) or not approval_key.strip():
+            raise KISWebSocketError("approval response did not contain approval_key")
+        return approval_key
 
     @staticmethod
     def subscription_message(approval_key: str, symbol: str, *, subscribe: bool = True) -> str:
+        if not approval_key.strip():
+            raise ValueError("approval_key is required")
         if not symbol.strip():
             raise ValueError("symbol is required")
         return json.dumps({
