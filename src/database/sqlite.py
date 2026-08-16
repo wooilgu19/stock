@@ -1,6 +1,7 @@
 """SQLite persistence for executed and simulated trades."""
 
 import sqlite3
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from src.models import Side, TradeLog
@@ -52,12 +53,22 @@ class TradeRepository:
         with self._connect() as connection:
             connection.execute("SELECT 1").fetchone()
 
-    def daily_realized_loss(self) -> float:
+    def daily_realized_loss(self, day: date | None = None) -> float:
+        """Return recorded loss for one UTC calendar day.
+
+        Trade timestamps are persisted as ISO-8601 values.  Comparing an
+        explicit half-open UTC range keeps historical losses from affecting a
+        later trading day while remaining deterministic in tests.
+        """
+        target_day = day or datetime.now(timezone.utc).date()
+        start = datetime.combine(target_day, datetime.min.time(), timezone.utc)
+        end = start + timedelta(days=1)
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT COALESCE(SUM(quantity * price), 0) AS loss "
-                "FROM trade_logs WHERE side = ? AND status = 'loss'",
-                (Side.SELL.value,),
+                "FROM trade_logs WHERE side = ? AND status = 'loss' "
+                "AND timestamp >= ? AND timestamp < ?",
+                (Side.SELL.value, start.isoformat(), end.isoformat()),
             ).fetchone()
             return float(row["loss"])
 

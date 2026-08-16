@@ -1,4 +1,19 @@
+from datetime import date, datetime, timezone
+
 from src.database.sqlite import TradeRepository
+from src.models import Side, TradeLog
+
+
+def test_daily_realized_loss_excludes_other_days(tmp_path):
+    repository = TradeRepository(tmp_path / "trades.sqlite3")
+    for day, price in ((date(2026, 8, 13), 100), (date(2026, 8, 14), 250)):
+        repository.save(TradeLog(
+            symbol="005930", side=Side.SELL, quantity=1, price=price,
+            strategy_id="test", signal_strength=0.8, status="loss",
+            timestamp=datetime(day.year, day.month, day.day, 2, tzinfo=timezone.utc),
+        ))
+
+    assert repository.daily_realized_loss(date(2026, 8, 14)) == 250
 from src.engine.order_manager import OrderManager
 from src.engine.risk import RiskGate
 from src.models import OrderRequest, Side, Tick
