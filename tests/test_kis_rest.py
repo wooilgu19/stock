@@ -194,6 +194,14 @@ def test_kis_order_status_provider_skips_malformed_rows_and_supports_lookback():
     assert session.calls[1][2]["params"]["INQR_STRT_DT"] != session.calls[1][2]["params"]["INQR_END_DT"]
 
 
+def test_kis_order_status_provider_validates_account_identifiers():
+    client = KISRestClient("https://example.test", "key", "secret", session=FakeSession([]))
+    with pytest.raises(ValueError, match="8-digit"):
+        KISOrderStatusProvider(client, "123")
+    with pytest.raises(ValueError, match="2-digit"):
+        KISOrderStatusProvider(client, "12345678", account_product_code="1")
+
+
 def test_kis_order_status_provider_follows_pagination_tokens():
     session = FakeSession([
         FakeResponse({"rt_cd": "0", "access_token": "token", "expires_in": 3600}),

@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -174,8 +175,10 @@ class KISOrderStatusProvider:
     def __init__(self, client: KISRestClient, account_number: str,
                  account_product_code: str = "01", paper_trading: bool = True,
                  lookback_days: int = 1) -> None:
-        if not account_number.strip():
-            raise ValueError("account_number is required")
+        if not account_number.isdigit() or len(account_number) != 8:
+            raise ValueError("account_number must be an 8-digit number")
+        if not account_product_code.isdigit() or len(account_product_code) != 2:
+            raise ValueError("account_product_code must be a 2-digit number")
         if lookback_days <= 0:
             raise ValueError("lookback_days must be positive")
         self.client = client
@@ -185,7 +188,7 @@ class KISOrderStatusProvider:
         self.lookback_days = lookback_days
 
     def __call__(self) -> Iterable[OrderStatusUpdate]:
-        today = date.today()
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
         return self.fetch(today - timedelta(days=self.lookback_days - 1), today)
 
     def fetch(self, start_date: date, end_date: date) -> list[OrderStatusUpdate]:
