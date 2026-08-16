@@ -44,6 +44,8 @@ market_hours = MarketHours.from_settings(settings)
   `AUTOMATION_MODE`; manual mode drops actionable signals before order creation.
 - `build_pipeline(settings, predictor, ...)` connects Redis ticks, inference,
   automation mode, risk checks, and order persistence.
+- `src/runtime.py`: Runs the assembled pipeline in single-cycle or stoppable
+  loop mode.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.
