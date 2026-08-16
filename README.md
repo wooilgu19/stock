@@ -47,7 +47,7 @@ market_hours = MarketHours.from_settings(settings)
 - `src/runtime.py`: Runs the assembled pipeline in single-cycle or stoppable
   loop mode.
 - `build_runtime(settings, predictor, ...)` creates the configured runtime
-  without starting it.
+  without starting it and can run reconciliation in the same cycle.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.

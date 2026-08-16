@@ -1,5 +1,7 @@
 from src.application import build_runtime
 from src.config import Settings
+from src.database.sqlite import TradeRepository
+from src.engine.reconciliation import OrderReconciler
 
 
 class EmptyQueue:
@@ -22,3 +24,17 @@ def test_build_runtime_is_not_started_during_construction(tmp_path):
 
     assert runtime.poll_interval == 0
     assert runtime.worker.last_id == "0-0"
+
+
+def test_build_runtime_injects_reconciler(tmp_path):
+    repository = TradeRepository(tmp_path / "reconcile.sqlite3")
+    reconciler = OrderReconciler(repository, lambda: [])
+    runtime = build_runtime(
+        Settings(database_path=tmp_path / "trades.sqlite3"),
+        UnusedPredictor(), EmptyQueue(), reconciler=reconciler,
+    )
+
+    cycle = runtime.run_once()
+
+    assert cycle.reconciliation is not None
+    assert cycle.reconciliation.updated == 0

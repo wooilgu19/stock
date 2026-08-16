@@ -16,6 +16,7 @@ from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
 from src.engine.order_manager import OrderManager
 from src.engine.risk import RiskGate
+from src.engine.reconciliation import OrderReconciler
 from src.engine.signal_router import SignalOrderRouter
 from src.inference.worker import InferenceWorker, SignalPredictor, TickQueue
 from src.monitoring.health import HealthMonitor
@@ -93,7 +94,8 @@ def build_pipeline(settings: Settings, predictor: SignalPredictor,
 
 def build_runtime(settings: Settings, predictor: SignalPredictor,
                   queue: TickQueue | None = None, quantity: Any = 1,
-                  on_result: Any = None, poll_interval: float = 1.0) -> TradingRuntime:
+                  on_result: Any = None, poll_interval: float = 1.0,
+                  reconciler: OrderReconciler | None = None) -> TradingRuntime:
     """Build a stoppable runtime around the configured trading pipeline."""
     worker = build_pipeline(settings, predictor, queue, quantity, on_result)
-    return TradingRuntime(worker, poll_interval=poll_interval)
+    return TradingRuntime(worker, reconciler=reconciler, poll_interval=poll_interval)
