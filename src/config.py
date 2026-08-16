@@ -31,6 +31,7 @@ class Settings:
     min_signal_strength: float = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
     max_order_value: int = int(os.getenv("MAX_ORDER_VALUE", "1000000"))
     max_daily_loss: int = int(os.getenv("MAX_DAILY_LOSS", "100000"))
+    kis_order_lookback_days: int = int(os.getenv("KIS_ORDER_LOOKBACK_DAYS", "1"))
     market_holidays: frozenset[date] = parse_holiday_dates(
         os.getenv("MARKET_HOLIDAYS", "")
     )
@@ -38,6 +39,8 @@ class Settings:
     def __post_init__(self) -> None:
         if self.automation_mode not in {"auto", "manual"}:
             raise ValueError("automation_mode must be 'auto' or 'manual'")
+        if self.kis_order_lookback_days <= 0:
+            raise ValueError("kis_order_lookback_days must be positive")
 
     @property
     def automation_enabled(self) -> bool:

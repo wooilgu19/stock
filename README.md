@@ -28,10 +28,14 @@ MARKET_HOLIDAYS=2026-01-01,2026-03-02
 ```python
 market_hours = MarketHours.from_settings(settings)
 ```
+
+Live reconciliation checks recent broker order history. Set
+`KIS_ORDER_LOOKBACK_DAYS` to control how many calendar days are queried
+(default: `1`).
 - `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication, price client, and explicit
   domestic cash-order executor (limit orders only), plus recent order-status
-  provider for reconciliation.
+  provider for reconciliation, including configurable recent-day lookback.
 - `src/application.py`: Builds a paper-safe or credential-validated live
   order manager without making network calls during startup.
 - `src/monitoring/health.py`: Non-mutating database and queue readiness checks.

@@ -146,60 +146,93 @@ class KISOrderExecutor:
 class KISOrderStatusProvider:
     """Fetch recent domestic-stock order lifecycle updates from KIS."""
 
+    _MAX_PAGES = 100
+
     def __init__(self, client: KISRestClient, account_number: str,
-                 account_product_code: str = "01", paper_trading: bool = True) -> None:
+                 account_product_code: str = "01", paper_trading: bool = True,
+                 lookback_days: int = 1) -> None:
         if not account_number.strip():
             raise ValueError("account_number is required")
+        if lookback_days <= 0:
+            raise ValueError("lookback_days must be positive")
         self.client = client
         self.account_number = account_number
         self.account_product_code = account_product_code
         self.paper_trading = paper_trading
+        self.lookback_days = lookback_days
 
     def __call__(self) -> Iterable[OrderStatusUpdate]:
         today = date.today()
-        return self.fetch(today, today)
+        return self.fetch(today - timedelta(days=self.lookback_days - 1), today)
 
     def fetch(self, start_date: date, end_date: date) -> list[OrderStatusUpdate]:
         if end_date < start_date:
             raise ValueError("end_date cannot be earlier than start_date")
-        body = self.client._request(
-            "GET",
-            "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
-            headers={
-                "authorization": f"Bearer {self.client.access_token()}",
-                "appkey": self.client.app_key,
-                "appsecret": self.client.app_secret,
-                "tr_id": "VTTC8001R" if self.paper_trading else "TTTC8001R",
-            },
-            params={
-                "CANO": self.account_number,
-                "ACNT_PRDT_CD": self.account_product_code,
-                "INQR_STRT_DT": start_date.strftime("%Y%m%d"),
-                "INQR_END_DT": end_date.strftime("%Y%m%d"),
-                "SLL_BUY_DVSN_CD": "00",
-                "INQR_DVSN": "00",
-                "PDNO": "",
-                "CCLD_DVSN": "00",
-                "INQR_DVSN_3": "00",
-                "CTX_AREA_FK100": "",
-                "CTX_AREA_NK100": "",
-            },
+        headers = {
+            "authorization": f"Bearer {self.client.access_token()}",
+            "appkey": self.client.app_key,
+            "appsecret": self.client.app_secret,
+            "tr_id": "VTTC8001R" if self.paper_trading else "TTTC8001R",
+        }
+        params = {
+            "CANO": self.account_number,
+            "ACNT_PRDT_CD": self.account_product_code,
+            "INQR_STRT_DT": start_date.strftime("%Y%m%d"),
+            "INQR_END_DT": end_date.strftime("%Y%m%d"),
+            "SLL_BUY_DVSN_CD": "00",
+            "INQR_DVSN": "00",
+            "PDNO": "",
+            "CCLD_DVSN": "00",
+            "INQR_DVSN_3": "00",
+            "CTX_AREA_FK100": "",
+            "CTX_AREA_NK100": "",
+        }
+        updates: list[OrderStatusUpdate] = []
+        seen_tokens: set[tuple[str, str]] = set()
+        for _ in range(self._MAX_PAGES):
+            body = self.client._request(
+                "GET",
+                "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                headers=headers,
+                params=params,
+            )
+            rows = body.get("output1", [])
+            if not isinstance(rows, list):
+                raise KISAPIError("KIS order status response output1 was not a list")
+            updates.extend(
+                update for row in rows if isinstance(row, dict)
+                if (update := self._parse_update(row)) is not None
+            )
+            next_tokens = self._next_page_tokens(body)
+            if not any(next_tokens):
+                return updates
+            if next_tokens in seen_tokens:
+                raise KISAPIError("KIS order status pagination repeated a page token")
+            seen_tokens.add(next_tokens)
+            params["CTX_AREA_FK100"], params["CTX_AREA_NK100"] = next_tokens
+        raise KISAPIError("KIS order status pagination exceeded page limit")
+
+    @staticmethod
+    def _next_page_tokens(body: dict[str, Any]) -> tuple[str, str]:
+        output2 = body.get("output2")
+        source = output2 if isinstance(output2, dict) else body
+        return (
+            str(source.get("ctx_area_fk100", "") or "").strip(),
+            str(source.get("ctx_area_nk100", "") or "").strip(),
         )
-        rows = body.get("output1", [])
-        if not isinstance(rows, list):
-            raise KISAPIError("KIS order status response output1 was not a list")
-        return [update for row in rows if isinstance(row, dict)
-                if (update := self._parse_update(row)) is not None]
 
     @staticmethod
     def _parse_update(row: dict[str, Any]) -> OrderStatusUpdate | None:
         order_id = str(row.get("odno", "")).strip()
         if not order_id:
             return None
-        rejected = int(str(row.get("rjct_qty", "0") or "0")) > 0
+        try:
+            rejected = int(str(row.get("rjct_qty", "0") or "0")) > 0
+            filled = int(str(row.get("tot_ccld_qty", "0") or "0")) > 0
+            remaining = int(str(row.get("rmn_qty", "0") or "0"))
+        except (TypeError, ValueError):
+            return None
         cancelled = str(row.get("cncl_yn", "N")).upper() == "Y"
-        filled = int(str(row.get("tot_ccld_qty", "0") or "0")) > 0
-        remaining = int(str(row.get("rmn_qty", "0") or "0"))
         status = "rejected" if rejected else (
             "cancelled" if cancelled else "filled" if filled and remaining == 0 else "submitted"
         )

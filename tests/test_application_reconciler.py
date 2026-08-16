@@ -21,3 +21,17 @@ def test_live_mode_creates_reconciler_without_network_call(tmp_path):
 
     assert reconciler is not None
     assert reconciler.repository.pending_order_ids() == set()
+
+
+def test_live_reconciler_uses_configured_order_lookback(tmp_path):
+    reconciler = build_reconciler(Settings(
+        database_path=tmp_path / "trades.sqlite3",
+        paper_trading=False,
+        kis_cano="12345678",
+        kis_appkey="key",
+        kis_appsecret="secret",
+        kis_order_lookback_days=5,
+    ))
+
+    assert reconciler is not None
+    assert reconciler.fetch_updates.lookback_days == 5

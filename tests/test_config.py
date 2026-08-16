@@ -20,3 +20,8 @@ def test_manual_automation_mode_is_available_without_disabling_paper_trading():
 
     assert settings.automation_enabled is False
     assert settings.paper_trading is True
+
+
+def test_order_status_lookback_must_be_positive():
+    with pytest.raises(ValueError, match="kis_order_lookback_days"):
+        Settings(kis_order_lookback_days=0)

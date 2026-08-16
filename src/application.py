@@ -85,6 +85,7 @@ def build_reconciler(settings: Settings, session: Any = None) -> OrderReconciler
         settings.kis_cano,
         settings.kis_acnt_prdt_cd,
         paper_trading=False,
+        lookback_days=settings.kis_order_lookback_days,
     )
     return OrderReconciler(TradeRepository(settings.database_path), provider)
 

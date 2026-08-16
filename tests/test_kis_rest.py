@@ -104,3 +104,44 @@ def test_kis_order_status_provider_parses_filled_and_rejected_orders():
     ]
     assert session.calls[1][2]["headers"]["tr_id"] == "VTTC8001R"
     assert session.calls[1][2]["params"]["INQR_STRT_DT"] == "20260814"
+
+
+def test_kis_order_status_provider_skips_malformed_rows_and_supports_lookback():
+    session = FakeSession([
+        FakeResponse({"rt_cd": "0", "access_token": "token", "expires_in": 3600}),
+        FakeResponse({"rt_cd": "0", "output1": [
+            {"odno": "bad", "tot_ccld_qty": "not-a-number", "rmn_qty": "0"},
+            {"odno": "125", "tot_ccld_qty": "0", "rmn_qty": "1", "rjct_qty": "0"},
+        ]}),
+    ])
+    provider = KISOrderStatusProvider(
+        KISRestClient("https://example.test", "key", "secret", session=session),
+        "12345678", lookback_days=3,
+    )
+
+    updates = provider()
+
+    assert [(update.broker_order_id, update.status) for update in updates] == [("125", "submitted")]
+    assert session.calls[1][2]["params"]["INQR_STRT_DT"] != session.calls[1][2]["params"]["INQR_END_DT"]
+
+
+def test_kis_order_status_provider_follows_pagination_tokens():
+    session = FakeSession([
+        FakeResponse({"rt_cd": "0", "access_token": "token", "expires_in": 3600}),
+        FakeResponse({"rt_cd": "0", "output1": [
+            {"odno": "125", "tot_ccld_qty": "0", "rmn_qty": "1"},
+        ], "output2": {"ctx_area_fk100": "next-fk", "ctx_area_nk100": "next-nk"}}),
+        FakeResponse({"rt_cd": "0", "output1": [
+            {"odno": "126", "tot_ccld_qty": "2", "rmn_qty": "0"},
+        ], "output2": {"ctx_area_fk100": "", "ctx_area_nk100": ""}}),
+    ])
+    provider = KISOrderStatusProvider(
+        KISRestClient("https://example.test", "key", "secret", session=session),
+        "12345678",
+    )
+
+    updates = provider.fetch(date(2026, 8, 14), date(2026, 8, 14))
+
+    assert [update.broker_order_id for update in updates] == ["125", "126"]
+    assert session.calls[2][2]["params"]["CTX_AREA_FK100"] == "next-fk"
+    assert session.calls[2][2]["params"]["CTX_AREA_NK100"] == "next-nk"
