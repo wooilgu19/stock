@@ -30,7 +30,8 @@ market_hours = MarketHours.from_settings(settings)
 ```
 - `src/engine/signal_router.py`: Converts BUY/SELL signals into risk-checked orders; HOLD signals are ignored.
 - `src/api/kis_rest.py`: KIS authentication, price client, and explicit
-  domestic cash-order executor (limit orders only).
+  domestic cash-order executor (limit orders only), plus recent order-status
+  provider for reconciliation.
 - `src/application.py`: Builds a paper-safe or credential-validated live
   order manager without making network calls during startup.
 - `src/monitoring/health.py`: Non-mutating database and queue readiness checks.

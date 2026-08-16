@@ -1,8 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from src.api.kis_rest import AccessToken, KISAPIError, KISOrderExecutor, KISRestClient
+from src.api.kis_rest import (
+    AccessToken, KISAPIError, KISOrderExecutor, KISOrderStatusProvider, KISRestClient,
+)
 from src.models import OrderRequest, Side
 
 
@@ -82,3 +84,23 @@ def test_kis_order_executor_rejects_response_without_order_number():
 
     with pytest.raises(KISAPIError, match="ODNO"):
         executor.submit(order)
+
+
+def test_kis_order_status_provider_parses_filled_and_rejected_orders():
+    session = FakeSession([
+        FakeResponse({"rt_cd": "0", "access_token": "token", "expires_in": 3600}),
+        FakeResponse({"rt_cd": "0", "output1": [
+            {"odno": "123", "tot_ccld_qty": "2", "rmn_qty": "0", "rjct_qty": "0", "cncl_yn": "N"},
+            {"odno": "124", "tot_ccld_qty": "0", "rmn_qty": "0", "rjct_qty": "1", "cncl_yn": "N"},
+        ]}),
+    ])
+    client = KISRestClient("https://example.test", "key", "secret", session=session)
+    provider = KISOrderStatusProvider(client, "12345678", paper_trading=True)
+
+    updates = provider.fetch(date(2026, 8, 14), date(2026, 8, 14))
+
+    assert [(update.broker_order_id, update.status) for update in updates] == [
+        ("123", "filled"), ("124", "rejected")
+    ]
+    assert session.calls[1][2]["headers"]["tr_id"] == "VTTC8001R"
+    assert session.calls[1][2]["params"]["INQR_STRT_DT"] == "20260814"
