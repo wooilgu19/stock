@@ -7,12 +7,17 @@ safe to run in tests and deployment health checks.
 
 from typing import Any
 
+from fastapi import FastAPI
+
 from src.api.kis_rest import KISOrderExecutor, KISRestClient
+from src.api.health import create_health_app
 from src.config import Settings
 from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
 from src.engine.order_manager import OrderManager
 from src.engine.risk import RiskGate
+from src.monitoring.health import HealthMonitor
+from src.queue.redis_queue import RedisQueue
 
 
 def build_order_manager(settings: Settings, session: Any = None) -> OrderManager:
@@ -49,3 +54,12 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
         market_hours=MarketHours.from_settings(settings),
         executor=executor,
     )
+
+
+def build_health_app(settings: Settings, queue: Any = None) -> FastAPI:
+    """Build the readiness app from settings without contacting dependencies."""
+    health_queue = queue if queue is not None else RedisQueue(
+        settings.redis_host, settings.redis_port
+    )
+    repository = TradeRepository(settings.database_path)
+    return create_health_app(HealthMonitor(repository, health_queue.ping))

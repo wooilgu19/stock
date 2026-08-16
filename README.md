@@ -36,6 +36,8 @@ market_hours = MarketHours.from_settings(settings)
 - `src/monitoring/health.py`: Non-mutating database and queue readiness checks.
 - `src/api/health.py`: FastAPI `/health` endpoint returning 503 on dependency
   failure.
+- `build_health_app(settings)` in `src/application.py` wires the endpoint to
+  configured SQLite and Redis dependencies without probing them at startup.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.
