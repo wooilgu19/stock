@@ -1,6 +1,7 @@
 """KIS domestic stock real-time execution-price WebSocket client."""
 
 import json
+import asyncio
 from collections.abc import AsyncIterator, Iterable
 from datetime import datetime, timezone
 from typing import Any
@@ -24,13 +25,20 @@ class KISWebSocketClient:
     def __init__(self, app_key: str, app_secret: str, *, paper_trading: bool = True,
                  base_url: str = "https://openapi.koreainvestment.com:9443",
                  ws_url: str | None = None, timeout: float = 10.0,
-                 http_session: requests.Session | None = None) -> None:
+                 http_session: requests.Session | None = None,
+                 max_reconnects: int = 3, reconnect_delay: float = 1.0) -> None:
+        if max_reconnects < 0:
+            raise ValueError("max_reconnects cannot be negative")
+        if reconnect_delay < 0:
+            raise ValueError("reconnect_delay cannot be negative")
         self.app_key = app_key
         self.app_secret = app_secret
         self.base_url = base_url.rstrip("/")
         self.ws_url = ws_url or (PAPER_WS_URL if paper_trading else REAL_WS_URL)
         self.timeout = timeout
         self.http_session = http_session or requests.Session()
+        self.max_reconnects = max_reconnects
+        self.reconnect_delay = reconnect_delay
 
     def approval_key(self) -> str:
         try:
@@ -104,14 +112,23 @@ class KISWebSocketClient:
         symbols = tuple(symbol.strip() for symbol in symbols if symbol.strip())
         if not symbols:
             raise ValueError("at least one symbol is required")
-        approval_key = self.approval_key()
-        async with websockets.connect(self.ws_url, open_timeout=self.timeout) as socket:
-            for symbol in symbols:
-                await socket.send(self.subscription_message(approval_key, symbol))
-            async for message in socket:
-                tick = self.parse_message(message)
-                if tick is not None:
-                    yield tick
+        reconnects = 0
+        while True:
+            try:
+                approval_key = self.approval_key()
+                async with websockets.connect(self.ws_url, open_timeout=self.timeout) as socket:
+                    for symbol in symbols:
+                        await socket.send(self.subscription_message(approval_key, symbol))
+                    async for message in socket:
+                        tick = self.parse_message(message)
+                        if tick is not None:
+                            yield tick
+                return
+            except (websockets.exceptions.ConnectionClosed, OSError) as exc:
+                if reconnects >= self.max_reconnects:
+                    raise KISWebSocketError("WebSocket reconnect limit exceeded") from exc
+                await asyncio.sleep(self.reconnect_delay * (2 ** reconnects))
+                reconnects += 1
 
     async def stream_to_queue(self, symbols: Iterable[str], queue: Any) -> None:
         """Forward parsed ticks to an object exposing ``publish(dict)``."""
