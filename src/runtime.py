@@ -13,6 +13,7 @@ from src.models import Signal
 class RuntimeCycle:
     signals: list[Signal]
     reconciliation: ReconciliationResult | None = None
+    errors: tuple[str, ...] = ()
 
 
 class TradingRuntime:
@@ -28,9 +29,25 @@ class TradingRuntime:
         self.poll_interval = poll_interval
 
     def run_once(self, count: int = 10) -> RuntimeCycle:
-        signals = self.worker.process_once(count)
-        reconciliation = self.reconciler.reconcile() if self.reconciler else None
-        return RuntimeCycle(signals, reconciliation)
+        errors: list[str] = []
+        try:
+            signals = self.worker.process_once(count)
+        except Exception as exc:
+            signals = []
+            errors.append(self._format_error("worker", exc))
+
+        reconciliation = None
+        if self.reconciler:
+            try:
+                reconciliation = self.reconciler.reconcile()
+            except Exception as exc:
+                errors.append(self._format_error("reconciliation", exc))
+        return RuntimeCycle(signals, reconciliation, tuple(errors))
+
+    @staticmethod
+    def _format_error(component: str, error: Exception) -> str:
+        message = str(error).strip() or error.__class__.__name__
+        return f"{component}: {message}"
 
     def run(self, stop_event: Event, count: int = 10,
             max_cycles: int | None = None) -> int:

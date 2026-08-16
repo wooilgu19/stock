@@ -23,6 +23,18 @@ class FakeReconciler:
         return "reconciled"
 
 
+class FailingWorker(FakeWorker):
+    def process_once(self, count=10):
+        self.calls.append(count)
+        raise RuntimeError("queue unavailable")
+
+
+class FailingReconciler(FakeReconciler):
+    def reconcile(self):
+        self.calls += 1
+        raise RuntimeError("broker unavailable")
+
+
 def test_runtime_runs_one_cycle_with_reconciliation():
     worker = FakeWorker()
     reconciler = FakeReconciler()
@@ -44,6 +56,22 @@ def test_runtime_stops_after_requested_cycles():
 
     assert cycles == 2
     assert worker.calls == [2, 2]
+
+
+def test_runtime_reports_worker_and_reconciliation_errors_without_stopping():
+    cycle = TradingRuntime(
+        FailingWorker(), FailingReconciler(), poll_interval=0,
+    ).run_once()
+
+    assert cycle.signals == []
+    assert cycle.reconciliation is None
+    assert cycle.errors == ("worker: queue unavailable", "reconciliation: broker unavailable")
+
+
+def test_runtime_continues_after_cycle_error():
+    runtime = TradingRuntime(FailingWorker(), poll_interval=0)
+
+    assert runtime.run(Event(), max_cycles=2) == 2
 
 
 def test_runtime_rejects_invalid_options():
