@@ -90,6 +90,14 @@ KIS WebSocket -> RedisQueue -> InferenceWorker -> SignalOrderRouter -> OrderMana
    independent safety switch.
 6. Run tests: `pytest -q`
 
+Before starting a deployment, validate the loaded environment without making
+network calls:
+
+```powershell
+python -m src.cli validate-config
+python -m src.cli validate-config --live
+```
+
 ## Safety Notes
 
 Live order submission is intentionally blocked unless an explicit broker
