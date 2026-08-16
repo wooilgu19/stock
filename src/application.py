@@ -17,6 +17,7 @@ from src.engine.market_hours import MarketHours
 from src.engine.order_manager import OrderManager
 from src.engine.risk import RiskGate
 from src.engine.signal_router import SignalOrderRouter
+from src.inference.worker import InferenceWorker, SignalPredictor, TickQueue
 from src.monitoring.health import HealthMonitor
 from src.queue.redis_queue import RedisQueue
 
@@ -75,3 +76,15 @@ def build_signal_router(settings: Settings, order_manager: OrderManager,
         on_result=on_result,
         automation_enabled=settings.automation_enabled,
     )
+
+
+def build_pipeline(settings: Settings, predictor: SignalPredictor,
+                   queue: TickQueue | None = None, quantity: Any = 1,
+                   on_result: Any = None) -> InferenceWorker:
+    """Build the tick-to-order pipeline without starting its processing loop."""
+    pipeline_queue = queue if queue is not None else RedisQueue(
+        settings.redis_host, settings.redis_port
+    )
+    manager = build_order_manager(settings)
+    router = build_signal_router(settings, manager, quantity, on_result)
+    return InferenceWorker(pipeline_queue, predictor, router.route)

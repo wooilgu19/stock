@@ -42,6 +42,8 @@ market_hours = MarketHours.from_settings(settings)
   configured SQLite and Redis dependencies without probing them at startup.
 - `build_signal_router(settings, order_manager, ...)` applies
   `AUTOMATION_MODE`; manual mode drops actionable signals before order creation.
+- `build_pipeline(settings, predictor, ...)` connects Redis ticks, inference,
+  automation mode, risk checks, and order persistence.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.
