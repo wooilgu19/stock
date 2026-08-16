@@ -36,7 +36,7 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
     """
     repository = TradeRepository(settings.database_path)
     executor = None
-    if not settings.paper_trading:
+    if not settings.is_paper:
         settings.validate_for_live()
         client = KISRestClient(
             settings.kis_base_url,
@@ -58,11 +58,11 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
             settings.max_order_value,
             settings.max_daily_loss,
         ),
-        paper_trading=settings.paper_trading,
+        paper_trading=settings.is_paper,
         market_hours=MarketHours.from_settings(settings),
         portfolio=(
             PortfolioState.from_repository(repository, settings.paper_starting_cash)
-            if settings.paper_trading else None
+            if settings.is_paper else None
         ),
         executor=executor,
     )
@@ -80,7 +80,7 @@ def build_health_app(settings: Settings, queue: Any = None,
 
 def build_reconciler(settings: Settings, session: Any = None) -> OrderReconciler | None:
     """Build the live KIS reconciliation adapter; keep paper mode local-only."""
-    if settings.paper_trading:
+    if settings.is_paper:
         return None
     settings.validate_for_live()
     client = KISRestClient(
@@ -119,7 +119,9 @@ def build_pipeline(settings: Settings, predictor: SignalPredictor,
     )
     manager = build_order_manager(settings)
     router = build_signal_router(settings, manager, quantity, on_result)
-    return InferenceWorker(pipeline_queue, predictor, router.route)
+    return InferenceWorker(pipeline_queue, predictor, router.route,
+                            cursor_store=manager.repository,
+                            cursor_name=getattr(pipeline_queue, "stream", "stock:ticks"))
 
 
 def build_runtime(settings: Settings, predictor: SignalPredictor,

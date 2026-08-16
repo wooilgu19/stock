@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 
+import pytest
+
 from src.database.sqlite import TradeRepository
 from src.models import OrderRequest, Side, Tick, TradeLog
 
@@ -14,6 +16,30 @@ def test_daily_realized_loss_excludes_other_days(tmp_path):
         ))
 
     assert repository.daily_realized_loss(date(2026, 8, 14)) == 250
+
+
+def test_partial_fill_then_reject_keeps_filled_quantity_in_pnl(tmp_path):
+    # Regression: a status priority that checked "rejected" before "filled"
+    # made a partially-filled-then-rejected order vanish from both P&L and
+    # position totals, understating daily loss and leaving a phantom
+    # position on the books.
+    repository = TradeRepository(tmp_path / "trades.sqlite3")
+    day = datetime(2026, 8, 14, 2, tzinfo=timezone.utc)
+    repository.save(TradeLog(
+        symbol="005930", side=Side.BUY, quantity=10, price=100,
+        strategy_id="test", signal_strength=0.8, status="filled",
+        timestamp=day, client_order_id="buy-1",
+    ))
+    repository.save(TradeLog(
+        symbol="005930", side=Side.SELL, quantity=10, price=80,
+        strategy_id="test", signal_strength=0.8, status="submitted",
+        timestamp=day, broker_order_id="sell-1", client_order_id="sell-1",
+    ))
+    repository.update_order_status("sell-1", "rejected", filled_quantity=4, average_fill_price=80)
+
+    assert repository.daily_realized_loss(date(2026, 8, 14)) == pytest.approx(4 * (100 - 80))
+    totals = {(symbol, side): quantity for symbol, side, quantity, _ in repository.executed_trade_totals()}
+    assert totals[("005930", "sell")] == 4
 
 
 def test_trade_timestamps_are_normalized_to_utc():
@@ -43,6 +69,17 @@ def test_tick_rejects_invalid_price():
         assert "price" in str(exc)
     else:
         raise AssertionError("invalid tick was accepted")
+
+
+def test_tick_rejects_nan_and_infinite_price():
+    # `float("nan") <= 0` is False, so a bare comparison let NaN prices
+    # through and silenced a symbol's moving average for its whole window.
+    for bad_price in (float("nan"), float("inf"), float("-inf")):
+        try:
+            Tick(symbol="005930", price=bad_price, volume=1)
+        except ValueError:
+            continue
+        raise AssertionError(f"non-finite price {bad_price} was accepted")
 
 
 def test_order_is_saved_in_paper_mode(tmp_path):

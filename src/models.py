@@ -1,5 +1,6 @@
 """Typed messages passed through the trading pipeline."""
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -30,7 +31,7 @@ class SignalAction(str, Enum):
     HOLD = "hold"
 
 
-ORDER_LIFECYCLE_STATUSES = frozenset({"submitted", "filled", "cancelled", "rejected"})
+ORDER_LIFECYCLE_STATUSES = frozenset({"pending", "submitted", "filled", "cancelled", "rejected"})
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,9 @@ class Tick:
     def __post_init__(self) -> None:
         if not self.symbol.strip():
             raise ValueError("symbol is required")
-        if self.price <= 0 or self.volume < 0:
+        # `nan <= 0` is False, so a bare comparison lets NaN prices through;
+        # isfinite() also rejects +/-inf.
+        if not math.isfinite(self.price) or self.price <= 0 or self.volume < 0:
             raise ValueError("price must be positive and volume cannot be negative")
         object.__setattr__(self, "timestamp", normalize_timestamp(self.timestamp))
 
@@ -99,6 +102,7 @@ class TradeLog:
     status: str = "filled"
     timestamp: datetime = field(default_factory=utc_now)
     broker_order_id: str | None = None
+    client_order_id: str | None = None
     id: int | None = None
 
     def __post_init__(self) -> None:
@@ -125,6 +129,8 @@ class OrderStatusUpdate:
 
     broker_order_id: str
     status: str
+    filled_quantity: int = 0
+    average_fill_price: float | None = None
 
     def __post_init__(self) -> None:
         if not self.broker_order_id.strip():
@@ -132,4 +138,8 @@ class OrderStatusUpdate:
         normalized_status = self.status.strip().lower()
         if normalized_status not in ORDER_LIFECYCLE_STATUSES:
             raise ValueError("unsupported order status")
+        if self.filled_quantity < 0:
+            raise ValueError("filled_quantity cannot be negative")
+        if self.average_fill_price is not None and self.average_fill_price <= 0:
+            raise ValueError("average_fill_price must be positive")
         object.__setattr__(self, "status", normalized_status)

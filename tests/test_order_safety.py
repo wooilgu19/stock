@@ -110,3 +110,70 @@ def test_live_order_is_persisted_only_after_executor_accepts(tmp_path):
 
     assert result.accepted and result.order_id == "kis-123"
     assert len(executor.orders) == 1
+
+
+class RejectThenAcceptExecutor:
+    """Broker double that rejects until told to start accepting."""
+
+    def __init__(self):
+        self.accepting = False
+        self.attempts = 0
+
+    def submit(self, order):
+        self.attempts += 1
+        if not self.accepting:
+            raise RuntimeError("broker rejected the order")
+        return "kis-retry-1"
+
+
+def test_rejected_order_can_be_retried_with_the_same_client_order_id(tmp_path):
+    # Regression: has_order_id() intentionally excludes 'rejected' so a retry
+    # is allowed through, but the retry reuses the same client_order_id as
+    # the rejected row. Before the ON CONFLICT upsert in TradeRepository.save
+    # this raised sqlite3.IntegrityError on the unique index and crashed the
+    # caller instead of returning a normal rejection/acceptance.
+    executor = RejectThenAcceptExecutor()
+    manager = OrderManager(
+        TradeRepository(tmp_path / "trades.sqlite3"),
+        RiskGate(0.6, 1_000_000, 100_000),
+        paper_trading=False,
+        executor=executor,
+        max_consecutive_rejections=5,
+    )
+    order = make_order(datetime(2026, 8, 14, 1, 0, tzinfo=timezone.utc), order_id="retry-1")
+
+    first = manager.submit(order)
+    assert not first.accepted
+
+    executor.accepting = True
+    second = manager.submit(order)
+
+    assert second.accepted and second.order_id == "kis-retry-1"
+    assert executor.attempts == 2
+
+
+class AlwaysRejectExecutor:
+    def submit(self, order):
+        raise RuntimeError("broker rejected the order")
+
+
+def test_kill_switch_halts_after_consecutive_rejections(tmp_path):
+    manager = OrderManager(
+        TradeRepository(tmp_path / "trades.sqlite3"),
+        RiskGate(0.6, 1_000_000, 100_000),
+        paper_trading=False,
+        executor=AlwaysRejectExecutor(),
+        max_consecutive_rejections=2,
+    )
+    timestamp = datetime(2026, 8, 14, 1, 0, tzinfo=timezone.utc)
+
+    first = manager.submit(make_order(timestamp, order_id="halt-1"))
+    second = manager.submit(make_order(timestamp, order_id="halt-2"))
+    third = manager.submit(make_order(timestamp, order_id="halt-3"))
+
+    assert not first.accepted and not second.accepted
+    assert manager.halted
+    assert third.reason.startswith("trading halted:")
+
+    manager.reset_halt()
+    assert not manager.halted

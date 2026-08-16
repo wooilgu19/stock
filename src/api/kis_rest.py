@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
+import threading
+import time
 
 from src.models import OrderRequest, OrderStatusUpdate, Side
 
@@ -31,6 +33,9 @@ class KISAPIError(RuntimeError):
 
 
 class KISRestClient:
+    _rate_lock = threading.Lock()
+    _request_times: list[float] = []
+
     def __init__(self, base_url: str, app_key: str, app_secret: str,
                  timeout: float = 10.0, session: requests.Session | None = None) -> None:
         parsed_url = urlparse(base_url)
@@ -44,8 +49,20 @@ class KISRestClient:
         self.timeout = timeout
         self.session = session or requests.Session()
         self._token: AccessToken | None = None
+    def _wait_for_rate_limit(self) -> None:
+        """Keep requests below KIS's documented 20 requests/second limit."""
+        while True:
+            with type(self)._rate_lock:
+                now = time.monotonic()
+                type(self)._request_times = [t for t in type(self)._request_times if now - t < 1.0]
+                if len(type(self)._request_times) < 20:
+                    type(self)._request_times.append(now)
+                    return
+                delay = 1.0 - (now - type(self)._request_times[0])
+            time.sleep(max(0.001, delay))
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        self._wait_for_rate_limit()
         try:
             response = self.session.request(method, self.base_url + path,
                                             timeout=self.timeout, **kwargs)
@@ -261,7 +278,22 @@ class KISOrderStatusProvider:
         except (TypeError, ValueError):
             return None
         cancelled = str(row.get("cncl_yn", "N")).upper() == "Y"
-        status = "rejected" if rejected else (
-            "cancelled" if cancelled else "filled" if filled and remaining == 0 else "submitted"
+        # A partial fill that is later cancelled or rejected must not lose its
+        # filled quantity: checking "fully filled" first (before cancel/reject)
+        # keeps completed orders correctly terminal, and checking cancel
+        # before reject preserves the filled_quantity carried on the same row
+        # either way (both branches persist filled_quantity below).
+        status = (
+            "filled" if filled and remaining == 0 else
+            "cancelled" if cancelled else
+            "rejected" if rejected else
+            "submitted"
         )
-        return OrderStatusUpdate(order_id, status)
+        try:
+            average_price = float(row.get("avg_prvs", row.get("avg_unpr", 0)) or 0)
+        except (TypeError, ValueError):
+            average_price = 0.0
+        return OrderStatusUpdate(
+            order_id, status, filled_quantity=max(0, int(str(row.get("tot_ccld_qty", "0") or "0"))),
+            average_fill_price=average_price or None,
+        )

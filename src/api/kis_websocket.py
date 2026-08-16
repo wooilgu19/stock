@@ -5,6 +5,7 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 import websockets
@@ -15,10 +16,24 @@ from src.models import Tick
 REALTIME_PRICE_TR_ID = "H0STCNT0"
 REAL_WS_URL = "ws://ops.koreainvestment.com:21000"
 PAPER_WS_URL = "ws://ops.koreainvestment.com:31000"
+# H0STCNT0 packs this many pipe-delimited fields per execution record; a
+# multi-record frame (count > 1) concatenates that many of them back to back.
+_RECORD_FIELD_COUNT = 46
+_KST = ZoneInfo("Asia/Seoul")
 
 
 class KISWebSocketError(RuntimeError):
     """Raised for WebSocket authentication or protocol errors."""
+
+
+class _StreamClosedNormally(Exception):
+    """Internal signal that the socket ended its message iteration cleanly.
+
+    KIS closes idle/daily sessions without a close frame the websockets
+    library treats as abnormal, so `async for message in socket` simply
+    exhausts. That must trigger the same reconnect path as a dropped
+    connection instead of ending the generator silently.
+    """
 
 
 class KISWebSocketClient:
@@ -81,7 +96,7 @@ class KISWebSocketClient:
         })
 
     @staticmethod
-    def parse_message(message: str | bytes) -> Tick | None:
+    def parse_ticks(message: str | bytes) -> list[Tick]:
         """Parse an unencrypted H0STCNT0 message into a Tick.
 
         Encrypted payloads are intentionally rejected until the account's
@@ -91,22 +106,49 @@ class KISWebSocketClient:
         if isinstance(message, bytes):
             message = message.decode("utf-8")
         if message.startswith("{"):
-            return None
+            return []
         parts = message.split("|", 3)
         if len(parts) != 4 or parts[0] != "0" or parts[1] != REALTIME_PRICE_TR_ID:
-            return None
+            return []
         fields = parts[3].split("|")
-        if len(fields) < 13:
-            raise KISWebSocketError("H0STCNT0 payload has too few fields")
         try:
-            return Tick(
-                symbol=fields[0],
-                price=float(fields[2]),
-                volume=int(fields[12]),
-                timestamp=datetime.now(timezone.utc),
-            )
-        except (ValueError, IndexError) as exc:
-            raise KISWebSocketError("invalid H0STCNT0 payload") from exc
+            count = int(parts[2])
+        except ValueError as exc:
+            raise KISWebSocketError("invalid H0STCNT0 record count") from exc
+        if count <= 0 or len(fields) < count * _RECORD_FIELD_COUNT:
+            raise KISWebSocketError("H0STCNT0 payload has too few fields")
+        ticks = []
+        for offset in range(0, count * _RECORD_FIELD_COUNT, _RECORD_FIELD_COUNT):
+            group = fields[offset:offset + _RECORD_FIELD_COUNT]
+            try:
+                ticks.append(Tick(symbol=group[0], price=float(group[2]),
+                                  volume=int(group[12]),
+                                  timestamp=KISWebSocketClient._execution_timestamp(group[1])))
+            except (ValueError, IndexError) as exc:
+                raise KISWebSocketError("invalid H0STCNT0 payload") from exc
+        return ticks
+
+    @staticmethod
+    def _execution_timestamp(hhmmss: str) -> datetime:
+        """Convert the exchange's KST execution time (HHMMSS) to UTC.
+
+        The frame carries no date, so today's KST date is assumed. Using the
+        exchange timestamp (rather than local receive time) keeps live
+        feature timing consistent with timestamps recorded during training,
+        which is not guaranteed under queueing delay or reconnect bursts.
+        """
+        if len(hhmmss) != 6 or not hhmmss.isdigit():
+            raise ValueError("invalid H0STCNT0 execution time")
+        hour, minute, second = int(hhmmss[0:2]), int(hhmmss[2:4]), int(hhmmss[4:6])
+        now_kst = datetime.now(_KST)
+        return now_kst.replace(
+            hour=hour, minute=minute, second=second, microsecond=0
+        ).astimezone(timezone.utc)
+
+    @staticmethod
+    def parse_message(message: str | bytes) -> Tick | None:
+        ticks = KISWebSocketClient.parse_ticks(message)
+        return ticks[0] if ticks else None
 
     async def stream(self, symbols: Iterable[str]) -> AsyncIterator[Tick]:
         symbols = tuple(symbol.strip() for symbol in symbols if symbol.strip())
@@ -117,14 +159,15 @@ class KISWebSocketClient:
             try:
                 approval_key = self.approval_key()
                 async with websockets.connect(self.ws_url, open_timeout=self.timeout) as socket:
+                    reconnects = 0
                     for symbol in symbols:
                         await socket.send(self.subscription_message(approval_key, symbol))
                     async for message in socket:
-                        tick = self.parse_message(message)
-                        if tick is not None:
+                        for tick in self.parse_ticks(message):
                             yield tick
-                return
-            except (websockets.exceptions.ConnectionClosed, OSError) as exc:
+                    raise _StreamClosedNormally()
+            except (websockets.exceptions.ConnectionClosed, OSError,
+                    asyncio.TimeoutError, _StreamClosedNormally) as exc:
                 if reconnects >= self.max_reconnects:
                     raise KISWebSocketError("WebSocket reconnect limit exceeded") from exc
                 await asyncio.sleep(self.reconnect_delay * (2 ** reconnects))
@@ -133,7 +176,7 @@ class KISWebSocketClient:
     async def stream_to_queue(self, symbols: Iterable[str], queue: Any) -> None:
         """Forward parsed ticks to an object exposing ``publish(dict)``."""
         async for tick in self.stream(symbols):
-            queue.publish({
+            await asyncio.to_thread(queue.publish, {
                 "symbol": tick.symbol,
                 "price": tick.price,
                 "volume": tick.volume,

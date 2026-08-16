@@ -29,14 +29,24 @@ class TradingRuntime:
                  reconciler: OrderReconciler | None = None,
                  poll_interval: float = 1.0,
                  metrics: RuntimeMetrics | None = None,
-                 on_error: Callable[[str], None] | None = None) -> None:
+                 on_error: Callable[[str], None] | None = None,
+                 reconcile_every: int = 1) -> None:
         if poll_interval < 0:
             raise ValueError("poll_interval cannot be negative")
+        if reconcile_every <= 0:
+            raise ValueError("reconcile_every must be positive")
         self.worker = worker
         self.reconciler = reconciler
         self.poll_interval = poll_interval
         self.metrics = metrics
         self.on_error = on_error
+        # Reconciliation pages through KIS's order-status REST endpoint on
+        # the same thread as tick processing; running it every cycle lets a
+        # busy order book's pagination (and rate-limit backoff) starve tick
+        # processing. Running it every Nth cycle instead bounds that cost
+        # without adding a second thread.
+        self.reconcile_every = reconcile_every
+        self._cycles_since_reconcile = 0
 
     def run_once(self, count: int = 10) -> RuntimeCycle:
         if count <= 0:
@@ -49,7 +59,9 @@ class TradingRuntime:
             errors.append(self._format_error("worker", exc))
 
         reconciliation = None
-        if self.reconciler:
+        self._cycles_since_reconcile += 1
+        if self.reconciler and self._cycles_since_reconcile >= self.reconcile_every:
+            self._cycles_since_reconcile = 0
             try:
                 reconciliation = self.reconciler.reconcile()
             except Exception as exc:

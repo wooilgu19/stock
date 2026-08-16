@@ -1,10 +1,26 @@
 import asyncio
 import json
+from zoneinfo import ZoneInfo
 
 import pytest
 import requests
 
-from src.api.kis_websocket import KISWebSocketClient, KISWebSocketError
+from src.api.kis_websocket import KISWebSocketClient, KISWebSocketError, _RECORD_FIELD_COUNT
+
+
+def make_record(symbol="005930", exec_time="101530", price="70000", volume="1234"):
+    """Build one 46-field H0STCNT0 record with the fields the client reads set."""
+    fields = ["0"] * _RECORD_FIELD_COUNT
+    fields[0] = symbol
+    fields[1] = exec_time
+    fields[2] = price
+    fields[12] = volume
+    return fields
+
+
+def make_frame(*records):
+    body = "|".join(field for record in records for field in record)
+    return f"0|H0STCNT0|{len(records):03d}|{body}"
 
 
 class FakeHTTPResponse:
@@ -93,9 +109,7 @@ def test_websocket_reconnects_after_connection_failure(monkeypatch):
                 return self.messages.pop(0)
             raise StopAsyncIteration
 
-    connections = iter([OSError("disconnected"), FakeSocket([
-        "0|H0STCNT0|001|005930|101530|70000|2|100|0.1|70000|69000|71000|68000|70010|69990|1234"
-    ])])
+    connections = iter([OSError("disconnected"), FakeSocket([make_frame(make_record())])])
 
     def connect(*args, **kwargs):
         connection = next(connections)
@@ -119,11 +133,26 @@ def test_websocket_reconnects_after_connection_failure(monkeypatch):
 
 
 def test_pipe_message_is_converted_to_tick():
-    fields = ["005930", "101530", "70000", "2", "100", "0.1", "70000", "69000", "71000", "68000", "70010", "69990", "1234"]
-    tick = KISWebSocketClient.parse_message("0|H0STCNT0|001|" + "|".join(fields))
+    tick = KISWebSocketClient.parse_message(make_frame(make_record()))
     assert tick.symbol == "005930"
     assert tick.price == 70000
     assert tick.volume == 1234
+
+
+def test_multi_record_frame_yields_one_tick_per_record():
+    frame = make_frame(
+        make_record(symbol="005930", price="70000", volume="10"),
+        make_record(symbol="000660", price="123000", volume="5"),
+    )
+    ticks = KISWebSocketClient.parse_ticks(frame)
+    assert [t.symbol for t in ticks] == ["005930", "000660"]
+    assert [t.volume for t in ticks] == [10, 5]
+
+
+def test_execution_time_field_is_used_for_tick_timestamp():
+    tick = KISWebSocketClient.parse_message(make_frame(make_record(exec_time="093015")))
+    kst = tick.timestamp.astimezone(ZoneInfo("Asia/Seoul"))
+    assert (kst.hour, kst.minute, kst.second) == (9, 30, 15)
 
 
 def test_invalid_payload_is_rejected():

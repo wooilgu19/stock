@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Protocol
 
-from src.models import Signal, SignalAction, Tick
+from src.models import Signal, Tick
 
 
 class TickQueue(Protocol):
@@ -27,20 +27,47 @@ def tick_from_message(message: dict[str, Any]) -> Tick:
 
 class InferenceWorker:
     def __init__(self, queue: TickQueue, predictor: SignalPredictor,
-                 on_signal: Callable[[Signal], None] | None = None) -> None:
+                 on_signal: Callable[[Signal], None] | None = None,
+                 cursor_store: Any = None, cursor_name: str = "stock:ticks",
+                 on_error: Callable[[str], None] | None = None) -> None:
         self.queue = queue
         self.predictor = predictor
         self.on_signal = on_signal
-        self.last_id = "0-0"
+        self.cursor_store = cursor_store
+        self.cursor_name = cursor_name
+        self.on_error = on_error
+        self.last_id = (cursor_store.stream_cursor(cursor_name)
+                        if cursor_store is not None else "0-0")
 
     def process_once(self, count: int = 10) -> list[Signal]:
         if count <= 0:
             raise ValueError("count must be positive")
         signals: list[Signal] = []
-        for message_id, payload in self.queue.read(self.last_id, count):
-            signal = self.predictor.on_tick(tick_from_message(payload))
-            self.last_id = message_id
-            signals.append(signal)
-            if self.on_signal:
-                self.on_signal(signal)
+        try:
+            for message_id, payload in self.queue.read(self.last_id, count):
+                try:
+                    signal = self.predictor.on_tick(tick_from_message(payload))
+                    if self.on_signal:
+                        self.on_signal(signal)
+                except ValueError as exc:
+                    # Malformed/poison input cannot succeed on retry. Consume
+                    # it and report it, while broker/network errors below
+                    # remain retryable (last_id is left unadvanced for them).
+                    if self.on_error:
+                        self.on_error(f"message {message_id}: {exc}")
+                    self.last_id = message_id
+                    continue
+                # Commit only after downstream order handling succeeds. A
+                # failed callback is retried instead of silently losing the
+                # tick, and it also stops this batch's cursor from advancing
+                # past it (see finally below).
+                self.last_id = message_id
+                signals.append(signal)
+        finally:
+            # Persisting once per batch instead of once per message trades a
+            # bounded amount of re-processing after a crash mid-batch (safe,
+            # since order submission is idempotent on client_order_id) for
+            # avoiding a disk fsync on every single tick.
+            if self.cursor_store is not None:
+                self.cursor_store.save_stream_cursor(self.cursor_name, self.last_id)
         return signals

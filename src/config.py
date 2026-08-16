@@ -33,6 +33,7 @@ class Settings:
     database_path: Path = Path(os.getenv("DATABASE_PATH", "./data/trading.sqlite3"))
     model_path: Path = Path(os.getenv("MODEL_PATH", "./models/latest_model.pt"))
     paper_trading: bool = _env_bool("PAPER_TRADING", True)
+    kis_env: str = os.getenv("KIS_ENV", "").strip().lower()
     automation_mode: str = os.getenv("AUTOMATION_MODE", "auto").strip().lower()
     min_signal_strength: float = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
     max_order_value: int = int(os.getenv("MAX_ORDER_VALUE", "1000000"))
@@ -46,6 +47,8 @@ class Settings:
     )
 
     def __post_init__(self) -> None:
+        if self.kis_env and self.kis_env not in {"paper", "live"}:
+            raise ValueError("KIS_ENV must be 'paper' or 'live'")
         if self.automation_mode not in {"auto", "manual"}:
             raise ValueError("automation_mode must be 'auto' or 'manual'")
         if self.kis_order_lookback_days <= 0:
@@ -64,6 +67,10 @@ class Settings:
     @property
     def automation_enabled(self) -> bool:
         return self.automation_mode == "auto"
+
+    @property
+    def is_paper(self) -> bool:
+        return self.kis_env == "paper" if self.kis_env else self.paper_trading
 
     @property
     def telegram_enabled(self) -> bool:

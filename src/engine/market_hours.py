@@ -33,7 +33,8 @@ class MarketHours:
         self.close_time = close_time
         self.holidays = frozenset(holidays)
 
-    def is_open(self, when: datetime) -> bool:
+    def is_open(self, when: datetime | None = None) -> bool:
+        when = when or datetime.now(self.timezone)
         local = when.astimezone(self.timezone) if when.tzinfo else when.replace(tzinfo=self.timezone)
         return (
             local.weekday() < 5

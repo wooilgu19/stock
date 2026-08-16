@@ -23,7 +23,7 @@ class MovingAverageStrategy:
         prices = self._prices[tick.symbol]
         prices.append(tick.price)
         if len(prices) < self.long_window:
-            return Signal(tick.symbol, SignalAction.HOLD, 0.0, tick.price, self.strategy_id)
+            return Signal(tick.symbol, SignalAction.HOLD, 0.0, tick.price, self.strategy_id, tick.timestamp)
 
         short_average = sum(list(prices)[-self.short_window:]) / self.short_window
         long_average = sum(prices) / self.long_window
@@ -40,4 +40,4 @@ class MovingAverageStrategy:
         self._previous_short[tick.symbol] = short_average
         self._previous_long[tick.symbol] = long_average
         return Signal(tick.symbol, action, strength if action != SignalAction.HOLD else 0.0,
-                      tick.price, self.strategy_id)
+                      tick.price, self.strategy_id, tick.timestamp)

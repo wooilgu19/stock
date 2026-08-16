@@ -31,7 +31,10 @@ class OrderReconciler:
             if update.broker_order_id not in pending:
                 ignored += 1
                 continue
-            if self.repository.update_order_status(update.broker_order_id, update.status):
+            if self.repository.update_order_status(
+                update.broker_order_id, update.status,
+                update.filled_quantity, update.average_fill_price,
+            ):
                 if update.status in self._TERMINAL_STATUSES:
                     pending.remove(update.broker_order_id)
                 updated += 1
