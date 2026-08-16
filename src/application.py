@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from src.api.kis_rest import KISOrderExecutor, KISRestClient
+from src.api.kis_rest import KISOrderExecutor, KISOrderStatusProvider, KISRestClient
 from src.api.health import create_health_app
 from src.config import Settings
 from src.database.sqlite import TradeRepository
@@ -69,6 +69,26 @@ def build_health_app(settings: Settings, queue: Any = None) -> FastAPI:
     return create_health_app(HealthMonitor(repository, health_queue.ping))
 
 
+def build_reconciler(settings: Settings, session: Any = None) -> OrderReconciler | None:
+    """Build the live KIS reconciliation adapter; keep paper mode local-only."""
+    if settings.paper_trading:
+        return None
+    settings.validate_for_live()
+    client = KISRestClient(
+        settings.kis_base_url,
+        settings.kis_appkey,
+        settings.kis_appsecret,
+        session=session,
+    )
+    provider = KISOrderStatusProvider(
+        client,
+        settings.kis_cano,
+        settings.kis_acnt_prdt_cd,
+        paper_trading=False,
+    )
+    return OrderReconciler(TradeRepository(settings.database_path), provider)
+
+
 def build_signal_router(settings: Settings, order_manager: OrderManager,
                         quantity: Any = 1, on_result: Any = None) -> SignalOrderRouter:
     """Build a signal router whose automation behavior follows settings."""
@@ -98,4 +118,5 @@ def build_runtime(settings: Settings, predictor: SignalPredictor,
                   reconciler: OrderReconciler | None = None) -> TradingRuntime:
     """Build a stoppable runtime around the configured trading pipeline."""
     worker = build_pipeline(settings, predictor, queue, quantity, on_result)
-    return TradingRuntime(worker, reconciler=reconciler, poll_interval=poll_interval)
+    active_reconciler = reconciler if reconciler is not None else build_reconciler(settings)
+    return TradingRuntime(worker, reconciler=active_reconciler, poll_interval=poll_interval)
