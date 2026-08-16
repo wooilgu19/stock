@@ -67,6 +67,22 @@ def test_non_object_json_response_is_rejected():
         client.access_token()
 
 
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"rt_cd": "0"}, "access_token"),
+        ({"rt_cd": "0", "access_token": "token", "expires_in": "invalid"}, "expires_in"),
+        ({"rt_cd": "0", "access_token": "token", "expires_in": 0}, "non-positive"),
+    ],
+)
+def test_invalid_token_payload_is_rejected(body, message):
+    session = FakeSession([FakeResponse(body)])
+    client = KISRestClient("https://example.test", "key", "secret", session=session)
+
+    with pytest.raises(KISAPIError, match=message):
+        client.access_token()
+
+
 def test_expiring_token_is_invalid():
     token = AccessToken("value", datetime.now(timezone.utc) + timedelta(seconds=30))
     assert not token.is_valid()

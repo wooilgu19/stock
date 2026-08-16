@@ -65,9 +65,17 @@ class KISRestClient:
             json={"grant_type": "client_credentials", "appkey": self.app_key,
                   "appsecret": self.app_secret},
         )
-        expires_in = int(body.get("expires_in", 86_400))
+        token = body.get("access_token")
+        if not isinstance(token, str) or not token.strip():
+            raise KISAPIError("KIS token response did not contain access_token")
+        try:
+            expires_in = int(body.get("expires_in", 86_400))
+        except (TypeError, ValueError) as exc:
+            raise KISAPIError("KIS token response contained invalid expires_in") from exc
+        if expires_in <= 0:
+            raise KISAPIError("KIS token response contained non-positive expires_in")
         self._token = AccessToken(
-            value=body["access_token"],
+            value=token,
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=expires_in),
         )
         return self._token.value
