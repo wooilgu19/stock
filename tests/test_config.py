@@ -54,3 +54,21 @@ def test_telegram_enabled_requires_both_credentials():
     settings = Settings(telegram_token="token", telegram_chat_id="chat")
 
     assert settings.telegram_enabled is True
+
+
+def test_live_validation_rejects_invalid_endpoint_and_account_format():
+    with pytest.raises(ValueError, match="HTTPS"):
+        Settings(
+            paper_trading=False,
+            kis_base_url="http://example.test",
+            kis_cano="12345678",
+            kis_appkey="key",
+            kis_appsecret="secret",
+        ).validate_for_live()
+    with pytest.raises(ValueError, match="8-digit"):
+        Settings(
+            paper_trading=False,
+            kis_cano="123",
+            kis_appkey="key",
+            kis_appsecret="secret",
+        ).validate_for_live()

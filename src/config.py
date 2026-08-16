@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 import os
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -78,6 +79,13 @@ class Settings:
         missing = [name for name, value in required.items() if not value.strip()]
         if missing:
             raise ValueError(f"live trading credentials are missing: {', '.join(missing)}")
+        parsed_url = urlparse(self.kis_base_url)
+        if parsed_url.scheme != "https" or not parsed_url.netloc:
+            raise ValueError("KIS_BASE_URL must be an absolute HTTPS URL for live trading")
+        if not self.kis_cano.isdigit() or len(self.kis_cano) != 8:
+            raise ValueError("KIS_CANO must be an 8-digit number")
+        if not self.kis_acnt_prdt_cd.isdigit() or len(self.kis_acnt_prdt_cd) != 2:
+            raise ValueError("KIS_ACNT_PRDT_CD must be a 2-digit number")
 
 
 settings = Settings()
