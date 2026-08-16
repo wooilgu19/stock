@@ -2,6 +2,7 @@ from src.application import build_runtime
 from src.config import Settings
 from src.database.sqlite import TradeRepository
 from src.engine.reconciliation import OrderReconciler
+from src.monitoring.metrics import RuntimeMetrics
 
 
 class EmptyQueue:
@@ -38,3 +39,15 @@ def test_build_runtime_injects_reconciler(tmp_path):
 
     assert cycle.reconciliation is not None
     assert cycle.reconciliation.updated == 0
+
+
+def test_build_runtime_injects_metrics(tmp_path):
+    metrics = RuntimeMetrics()
+    runtime = build_runtime(
+        Settings(database_path=tmp_path / "trades.sqlite3"),
+        UnusedPredictor(), EmptyQueue(), poll_interval=0, metrics=metrics,
+    )
+
+    runtime.run_once()
+
+    assert metrics.cycles == 1

@@ -6,6 +6,7 @@ from time import monotonic
 
 from src.engine.reconciliation import OrderReconciler, ReconciliationResult
 from src.inference.worker import InferenceWorker
+from src.monitoring.metrics import RuntimeMetrics
 from src.models import Signal
 
 
@@ -21,12 +22,14 @@ class TradingRuntime:
 
     def __init__(self, worker: InferenceWorker,
                  reconciler: OrderReconciler | None = None,
-                 poll_interval: float = 1.0) -> None:
+                 poll_interval: float = 1.0,
+                 metrics: RuntimeMetrics | None = None) -> None:
         if poll_interval < 0:
             raise ValueError("poll_interval cannot be negative")
         self.worker = worker
         self.reconciler = reconciler
         self.poll_interval = poll_interval
+        self.metrics = metrics
 
     def run_once(self, count: int = 10) -> RuntimeCycle:
         errors: list[str] = []
@@ -42,7 +45,10 @@ class TradingRuntime:
                 reconciliation = self.reconciler.reconcile()
             except Exception as exc:
                 errors.append(self._format_error("reconciliation", exc))
-        return RuntimeCycle(signals, reconciliation, tuple(errors))
+        cycle = RuntimeCycle(signals, reconciliation, tuple(errors))
+        if self.metrics:
+            self.metrics.record(len(cycle.signals), cycle.errors, cycle.reconciliation)
+        return cycle
 
     @staticmethod
     def _format_error(component: str, error: Exception) -> str:

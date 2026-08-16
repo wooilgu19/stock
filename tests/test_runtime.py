@@ -3,6 +3,7 @@ from threading import Event
 import pytest
 
 from src.runtime import TradingRuntime
+from src.monitoring.metrics import RuntimeMetrics
 
 
 class FakeWorker:
@@ -72,6 +73,22 @@ def test_runtime_continues_after_cycle_error():
     runtime = TradingRuntime(FailingWorker(), poll_interval=0)
 
     assert runtime.run(Event(), max_cycles=2) == 2
+
+
+def test_runtime_records_metrics():
+    metrics = RuntimeMetrics()
+    runtime = TradingRuntime(FakeWorker(), FakeReconciler(), poll_interval=0, metrics=metrics)
+
+    runtime.run_once()
+
+    assert metrics.as_dict() == {
+        "cycles": 1,
+        "signals": 0,
+        "errors": 0,
+        "reconciliation_updates": 0,
+        "reconciliation_ignored": 0,
+        "last_error": None,
+    }
 
 
 def test_runtime_rejects_invalid_options():

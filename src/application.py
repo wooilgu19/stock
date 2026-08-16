@@ -21,6 +21,7 @@ from src.engine.reconciliation import OrderReconciler
 from src.engine.signal_router import SignalOrderRouter
 from src.inference.worker import InferenceWorker, SignalPredictor, TickQueue
 from src.monitoring.health import HealthMonitor
+from src.monitoring.metrics import RuntimeMetrics
 from src.queue.redis_queue import RedisQueue
 from src.runtime import TradingRuntime
 
@@ -122,8 +123,12 @@ def build_pipeline(settings: Settings, predictor: SignalPredictor,
 def build_runtime(settings: Settings, predictor: SignalPredictor,
                   queue: TickQueue | None = None, quantity: Any = 1,
                   on_result: Any = None, poll_interval: float = 1.0,
-                  reconciler: OrderReconciler | None = None) -> TradingRuntime:
+                  reconciler: OrderReconciler | None = None,
+                  metrics: RuntimeMetrics | None = None) -> TradingRuntime:
     """Build a stoppable runtime around the configured trading pipeline."""
     worker = build_pipeline(settings, predictor, queue, quantity, on_result)
     active_reconciler = reconciler if reconciler is not None else build_reconciler(settings)
-    return TradingRuntime(worker, reconciler=active_reconciler, poll_interval=poll_interval)
+    return TradingRuntime(
+        worker, reconciler=active_reconciler, poll_interval=poll_interval,
+        metrics=metrics,
+    )
