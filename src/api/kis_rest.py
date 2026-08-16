@@ -121,6 +121,10 @@ class KISOrderExecutor:
             raise ValueError("quantity and price must be positive")
         if order.side not in (Side.BUY, Side.SELL):
             raise ValueError("unsupported order side")
+        if not order.symbol.isdigit() or len(order.symbol) != 6:
+            raise ValueError("domestic stock symbol must be a 6-digit code")
+        if not float(order.price).is_integer():
+            raise ValueError("domestic stock order price must be an integer")
 
         transaction_id = self._transaction_id(order.side)
         body = self.client._request(

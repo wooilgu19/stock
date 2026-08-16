@@ -122,6 +122,24 @@ def test_kis_order_executor_rejects_response_without_order_number():
         executor.submit(order)
 
 
+@pytest.mark.parametrize(
+    ("symbol", "price", "message"),
+    [
+        ("ABC", 70000, "6-digit"),
+        ("005930", 70000.5, "integer"),
+    ],
+)
+def test_kis_order_executor_rejects_invalid_domestic_order_fields(symbol, price, message):
+    executor = KISOrderExecutor(
+        KISRestClient("https://example.test", "key", "secret", session=FakeSession([])),
+        "12345678",
+    )
+    order = OrderRequest(symbol, Side.BUY, 1, price, "baseline", 0.8)
+
+    with pytest.raises(ValueError, match=message):
+        executor.submit(order)
+
+
 def test_kis_order_status_provider_parses_filled_and_rejected_orders():
     session = FakeSession([
         FakeResponse({"rt_cd": "0", "access_token": "token", "expires_in": 3600}),
