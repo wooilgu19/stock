@@ -119,3 +119,7 @@ def test_runtime_rejects_invalid_options():
         TradingRuntime(FakeWorker(), poll_interval=-1)
     with pytest.raises(ValueError):
         TradingRuntime(FakeWorker()).run(Event(), max_cycles=0)
+    with pytest.raises(ValueError, match="count"):
+        TradingRuntime(FakeWorker()).run_once(count=0)
+    with pytest.raises(ValueError, match="count"):
+        TradingRuntime(FakeWorker()).run(Event(), count=0)

@@ -39,6 +39,8 @@ class TradingRuntime:
         self.on_error = on_error
 
     def run_once(self, count: int = 10) -> RuntimeCycle:
+        if count <= 0:
+            raise ValueError("count must be positive")
         errors: list[str] = []
         try:
             signals = self.worker.process_once(count)
@@ -74,6 +76,8 @@ class TradingRuntime:
         """Run until stopped, returning the number of completed cycles."""
         if max_cycles is not None and max_cycles <= 0:
             raise ValueError("max_cycles must be positive")
+        if count <= 0:
+            raise ValueError("count must be positive")
         cycles = 0
         while not stop_event.is_set() and (max_cycles is None or cycles < max_cycles):
             started = monotonic()
