@@ -15,6 +15,7 @@ from src.config import Settings
 from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
 from src.engine.order_manager import OrderManager
+from src.engine.portfolio import PortfolioState
 from src.engine.risk import RiskGate
 from src.engine.reconciliation import OrderReconciler
 from src.engine.signal_router import SignalOrderRouter
@@ -31,6 +32,7 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
     credentials and injects the KIS executor, but still performs no API call
     until ``OrderManager.submit`` is invoked.
     """
+    repository = TradeRepository(settings.database_path)
     executor = None
     if not settings.paper_trading:
         settings.validate_for_live()
@@ -48,7 +50,7 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
         )
 
     return OrderManager(
-        repository=TradeRepository(settings.database_path),
+        repository=repository,
         risk_gate=RiskGate(
             settings.min_signal_strength,
             settings.max_order_value,
@@ -56,6 +58,10 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
         ),
         paper_trading=settings.paper_trading,
         market_hours=MarketHours.from_settings(settings),
+        portfolio=(
+            PortfolioState.from_repository(repository, settings.paper_starting_cash)
+            if settings.paper_trading else None
+        ),
         executor=executor,
     )
 

@@ -25,3 +25,8 @@ def test_manual_automation_mode_is_available_without_disabling_paper_trading():
 def test_order_status_lookback_must_be_positive():
     with pytest.raises(ValueError, match="kis_order_lookback_days"):
         Settings(kis_order_lookback_days=0)
+
+
+def test_paper_starting_cash_cannot_be_negative():
+    with pytest.raises(ValueError, match="paper_starting_cash"):
+        Settings(paper_starting_cash=-1)

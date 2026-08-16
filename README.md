@@ -13,6 +13,8 @@ An asynchronous stock auto-trading system using the Korea Investment & Securitie
 
 `PortfolioState.from_repository(...)` can restore paper cash and positions from
 persisted simulated/filled trades after a process restart.
+The application wiring enables this automatically in paper mode using
+`PAPER_STARTING_CASH` (default: `10000000`).
 
 `MarketHours(holidays={...})` accepts exchange holiday dates and blocks orders
 on those dates. The holiday set is intentionally supplied by the caller so a
