@@ -41,6 +41,13 @@ def test_access_token_is_cached_and_price_is_parsed():
     assert len(session.calls) == 2
 
 
+def test_rest_client_rejects_invalid_url_and_timeout():
+    with pytest.raises(ValueError, match="absolute HTTP"):
+        KISRestClient("example.test", "key", "secret")
+    with pytest.raises(ValueError, match="timeout"):
+        KISRestClient("https://example.test", "key", "secret", timeout=0)
+
+
 def test_api_error_is_exposed():
     session = FakeSession([FakeResponse({"rt_cd": "1", "msg1": "bad credentials"})])
     client = KISRestClient("https://example.test", "key", "secret", session=session)
@@ -120,6 +127,14 @@ def test_kis_order_executor_rejects_response_without_order_number():
 
     with pytest.raises(KISAPIError, match="ODNO"):
         executor.submit(order)
+
+
+def test_kis_order_executor_validates_account_identifiers():
+    client = KISRestClient("https://example.test", "key", "secret", session=FakeSession([]))
+    with pytest.raises(ValueError, match="8-digit"):
+        KISOrderExecutor(client, "123")
+    with pytest.raises(ValueError, match="2-digit"):
+        KISOrderExecutor(client, "12345678", account_product_code="1")
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from collections.abc import Iterable
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -31,6 +32,11 @@ class KISAPIError(RuntimeError):
 class KISRestClient:
     def __init__(self, base_url: str, app_key: str, app_secret: str,
                  timeout: float = 10.0, session: requests.Session | None = None) -> None:
+        parsed_url = urlparse(base_url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            raise ValueError("base_url must be an absolute HTTP(S) URL")
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
         self.base_url = base_url.rstrip("/")
         self.app_key = app_key
         self.app_secret = app_secret
@@ -107,10 +113,10 @@ class KISOrderExecutor:
 
     def __init__(self, client: KISRestClient, account_number: str,
                  account_product_code: str = "01", paper_trading: bool = True) -> None:
-        if not account_number.strip():
-            raise ValueError("account_number is required")
-        if not account_product_code.strip():
-            raise ValueError("account_product_code is required")
+        if not account_number.isdigit() or len(account_number) != 8:
+            raise ValueError("account_number must be an 8-digit number")
+        if not account_product_code.isdigit() or len(account_product_code) != 2:
+            raise ValueError("account_product_code must be a 2-digit number")
         self.client = client
         self.account_number = account_number
         self.account_product_code = account_product_code
