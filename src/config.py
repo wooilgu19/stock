@@ -33,6 +33,8 @@ class Settings:
     max_daily_loss: int = int(os.getenv("MAX_DAILY_LOSS", "100000"))
     kis_order_lookback_days: int = int(os.getenv("KIS_ORDER_LOOKBACK_DAYS", "1"))
     paper_starting_cash: float = float(os.getenv("PAPER_STARTING_CASH", "10000000"))
+    telegram_token: str = os.getenv("TELEGRAM_TOKEN", "")
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
     market_holidays: frozenset[date] = parse_holiday_dates(
         os.getenv("MARKET_HOLIDAYS", "")
     )
@@ -50,10 +52,16 @@ class Settings:
             raise ValueError("max_order_value cannot be negative")
         if self.max_daily_loss < 0:
             raise ValueError("max_daily_loss cannot be negative")
+        if bool(self.telegram_token.strip()) != bool(self.telegram_chat_id.strip()):
+            raise ValueError("telegram_token and telegram_chat_id must be configured together")
 
     @property
     def automation_enabled(self) -> bool:
         return self.automation_mode == "auto"
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(self.telegram_token.strip() and self.telegram_chat_id.strip())
 
     def validate_for_live(self) -> None:
         """Reject incomplete credentials before constructing a live pipeline."""

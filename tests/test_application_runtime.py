@@ -3,6 +3,7 @@ from src.config import Settings
 from src.database.sqlite import TradeRepository
 from src.engine.reconciliation import OrderReconciler
 from src.monitoring.metrics import RuntimeMetrics
+from src.monitoring.notifications import TelegramNotifier
 
 
 class EmptyQueue:
@@ -51,3 +52,16 @@ def test_build_runtime_injects_metrics(tmp_path):
     runtime.run_once()
 
     assert metrics.cycles == 1
+
+
+def test_build_runtime_enables_telegram_notifier_without_network_call(tmp_path):
+    runtime = build_runtime(
+        Settings(
+            database_path=tmp_path / "trades.sqlite3",
+            telegram_token="token",
+            telegram_chat_id="chat",
+        ),
+        UnusedPredictor(), EmptyQueue(), poll_interval=0,
+    )
+
+    assert isinstance(runtime.on_error, TelegramNotifier)

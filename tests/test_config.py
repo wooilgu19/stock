@@ -43,3 +43,14 @@ def test_paper_starting_cash_cannot_be_negative():
 def test_settings_reject_invalid_risk_limits(field, value, message):
     with pytest.raises(ValueError, match=message):
         Settings(**{field: value})
+
+
+def test_telegram_settings_must_be_configured_together():
+    with pytest.raises(ValueError, match="telegram_token"):
+        Settings(telegram_token="token")
+
+
+def test_telegram_enabled_requires_both_credentials():
+    settings = Settings(telegram_token="token", telegram_chat_id="chat")
+
+    assert settings.telegram_enabled is True

@@ -22,6 +22,7 @@ from src.engine.signal_router import SignalOrderRouter
 from src.inference.worker import InferenceWorker, SignalPredictor, TickQueue
 from src.monitoring.health import HealthMonitor
 from src.monitoring.metrics import RuntimeMetrics
+from src.monitoring.notifications import TelegramNotifier
 from src.queue.redis_queue import RedisQueue
 from src.runtime import TradingRuntime
 
@@ -130,8 +131,11 @@ def build_runtime(settings: Settings, predictor: SignalPredictor,
     """Build a stoppable runtime around the configured trading pipeline."""
     worker = build_pipeline(settings, predictor, queue, quantity, on_result)
     active_reconciler = reconciler if reconciler is not None else build_reconciler(settings)
+    error_handler = on_error
+    if error_handler is None and settings.telegram_enabled:
+        error_handler = TelegramNotifier(settings.telegram_token, settings.telegram_chat_id)
     return TradingRuntime(
         worker, reconciler=active_reconciler, poll_interval=poll_interval,
         metrics=metrics,
-        on_error=on_error,
+        on_error=error_handler,
     )
