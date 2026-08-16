@@ -18,6 +18,10 @@ class RedisQueue:
     def publish(self, message: dict[str, Any]) -> str:
         return str(self.client.xadd(self.stream, {"payload": json.dumps(message)}))
 
+    def ping(self) -> None:
+        """Raise when Redis is unavailable."""
+        self.client.ping()
+
     def publish_tick(self, tick: Tick) -> str:
         return self.publish({
             "symbol": tick.symbol,

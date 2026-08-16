@@ -33,6 +33,7 @@ market_hours = MarketHours.from_settings(settings)
   domestic cash-order executor (limit orders only).
 - `src/application.py`: Builds a paper-safe or credential-validated live
   order manager without making network calls during startup.
+- `src/monitoring/health.py`: Non-mutating database and queue readiness checks.
 - `src/api/kis_websocket.py`: KIS real-time execution-price WebSocket client.
 - `src/queue/redis_queue.py`: Redis Streams adapter.
 - `src/inference/worker.py`: Redis tick consumer and signal dispatcher.

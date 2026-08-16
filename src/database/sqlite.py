@@ -47,6 +47,11 @@ class TradeRepository:
             )
             return int(cursor.lastrowid)
 
+    def ping(self) -> None:
+        """Raise if the persistence store cannot execute a trivial query."""
+        with self._connect() as connection:
+            connection.execute("SELECT 1").fetchone()
+
     def daily_realized_loss(self) -> float:
         with self._connect() as connection:
             row = connection.execute(
