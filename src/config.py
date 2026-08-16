@@ -44,6 +44,12 @@ class Settings:
             raise ValueError("kis_order_lookback_days must be positive")
         if self.paper_starting_cash < 0:
             raise ValueError("paper_starting_cash cannot be negative")
+        if not 0 <= self.min_signal_strength <= 1:
+            raise ValueError("min_signal_strength must be between 0 and 1")
+        if self.max_order_value < 0:
+            raise ValueError("max_order_value cannot be negative")
+        if self.max_daily_loss < 0:
+            raise ValueError("max_daily_loss cannot be negative")
 
     @property
     def automation_enabled(self) -> bool:

@@ -30,3 +30,16 @@ def test_order_status_lookback_must_be_positive():
 def test_paper_starting_cash_cannot_be_negative():
     with pytest.raises(ValueError, match="paper_starting_cash"):
         Settings(paper_starting_cash=-1)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("min_signal_strength", 1.1, "min_signal_strength"),
+        ("max_order_value", -1, "max_order_value"),
+        ("max_daily_loss", -1, "max_daily_loss"),
+    ],
+)
+def test_settings_reject_invalid_risk_limits(field, value, message):
+    with pytest.raises(ValueError, match=message):
+        Settings(**{field: value})
