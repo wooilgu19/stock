@@ -25,6 +25,6 @@ class RecordingQueue:
             line = json.dumps({"ts": time.time(), "payload": message})
             with open(self.path, "a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
-        except OSError:
+        except (OSError, TypeError, ValueError):
             logger.warning("failed to record tick to %s", self.path, exc_info=True)
         return result
