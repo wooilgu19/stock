@@ -27,12 +27,17 @@ from src.queue.redis_queue import RedisQueue
 from src.runtime import TradingRuntime
 
 
-def build_order_manager(settings: Settings, session: Any = None) -> OrderManager:
+def build_order_manager(settings: Settings, session: Any = None,
+                        enforce_market_hours: bool = True) -> OrderManager:
     """Build a paper-safe order manager from application settings.
 
     Paper mode does not need credentials or an executor.  Live mode validates
     credentials and injects the KIS executor, but still performs no API call
-    until ``OrderManager.submit`` is invoked.
+    until ``OrderManager.submit`` is invoked. ``enforce_market_hours=False``
+    skips the wall-clock market-hours check entirely — used when replaying
+    recorded ticks outside trading hours (see src/replay.py), where the
+    replay's real-time clock legitimately disagrees with the ticks' original
+    market time.
     """
     repository = TradeRepository(settings.database_path)
     executor = None
@@ -59,7 +64,7 @@ def build_order_manager(settings: Settings, session: Any = None) -> OrderManager
             settings.max_daily_loss,
         ),
         paper_trading=settings.is_paper,
-        market_hours=MarketHours.from_settings(settings),
+        market_hours=MarketHours.from_settings(settings) if enforce_market_hours else None,
         portfolio=(
             PortfolioState.from_repository(repository, settings.paper_starting_cash)
             if settings.is_paper else None
@@ -112,12 +117,12 @@ def build_signal_router(settings: Settings, order_manager: OrderManager,
 
 def build_pipeline(settings: Settings, predictor: SignalPredictor,
                    queue: TickQueue | None = None, quantity: Any = 1,
-                   on_result: Any = None) -> InferenceWorker:
+                   on_result: Any = None, enforce_market_hours: bool = True) -> InferenceWorker:
     """Build the tick-to-order pipeline without starting its processing loop."""
     pipeline_queue = queue if queue is not None else RedisQueue(
         settings.redis_host, settings.redis_port
     )
-    manager = build_order_manager(settings)
+    manager = build_order_manager(settings, enforce_market_hours=enforce_market_hours)
     router = build_signal_router(settings, manager, quantity, on_result)
     return InferenceWorker(pipeline_queue, predictor, router.route,
                             cursor_store=manager.repository,
@@ -129,9 +134,10 @@ def build_runtime(settings: Settings, predictor: SignalPredictor,
                   on_result: Any = None, poll_interval: float = 1.0,
                   reconciler: OrderReconciler | None = None,
                   metrics: RuntimeMetrics | None = None,
-                  on_error: Any = None) -> TradingRuntime:
+                  on_error: Any = None, enforce_market_hours: bool = True) -> TradingRuntime:
     """Build a stoppable runtime around the configured trading pipeline."""
-    worker = build_pipeline(settings, predictor, queue, quantity, on_result)
+    worker = build_pipeline(settings, predictor, queue, quantity, on_result,
+                            enforce_market_hours=enforce_market_hours)
     active_reconciler = reconciler if reconciler is not None else build_reconciler(settings)
     error_handler = on_error
     if error_handler is None and settings.telegram_enabled:

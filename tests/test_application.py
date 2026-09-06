@@ -66,3 +66,20 @@ def test_live_build_injects_executor_without_network_call(tmp_path):
     assert manager.executor is not None
     assert manager.portfolio is None
     assert date(2026, 8, 14) in manager.market_hours.holidays
+
+
+def test_build_order_manager_skips_market_hours_check_when_disabled(tmp_path):
+    manager = build_order_manager(
+        Settings(database_path=tmp_path / "trades.sqlite3", paper_starting_cash=500_000),
+        enforce_market_hours=False,
+    )
+
+    assert manager.market_hours is None
+
+
+def test_build_order_manager_enforces_market_hours_by_default(tmp_path):
+    manager = build_order_manager(
+        Settings(database_path=tmp_path / "trades.sqlite3", paper_starting_cash=500_000),
+    )
+
+    assert manager.market_hours is not None
