@@ -23,7 +23,9 @@ from src.api.kis_websocket import KISWebSocketClient
 from src.application import build_health_app, build_runtime
 from src.config import Settings
 from src.monitoring.metrics import RuntimeMetrics
+from src.queue.recording_queue import RecordingQueue
 from src.queue.redis_queue import RedisQueue
+from src.replay import replay_ticks
 from src.strategies.moving_average import MovingAverageStrategy
 
 logger = logging.getLogger(__name__)
@@ -40,11 +42,13 @@ def _log_signal_result(signal: object, result: object) -> None:
 
 
 def _run_trading_loop(settings: Settings, queue: RedisQueue, metrics: RuntimeMetrics,
-                       stop_event: threading.Event, poll_interval: float, quantity: int) -> None:
+                       stop_event: threading.Event, poll_interval: float, quantity: int,
+                       enforce_market_hours: bool = True) -> None:
     predictor = MovingAverageStrategy()
     runtime = build_runtime(
         settings, predictor, queue=queue, quantity=quantity,
         on_result=_log_signal_result, metrics=metrics, poll_interval=poll_interval,
+        enforce_market_hours=enforce_market_hours,
     )
     try:
         cycles = runtime.run(stop_event, count=10)
@@ -91,6 +95,15 @@ async def _run_collector(settings: Settings, symbols: list[str], queue: RedisQue
         stop_event.set()
 
 
+async def _run_replay(path: str, queue: RedisQueue, stop_event: threading.Event) -> None:
+    try:
+        await replay_ticks(path, queue, stop_event)
+    finally:
+        # Replay finished (or hit an error) — nothing is publishing ticks
+        # anymore, so the trading loop must stop instead of polling forever.
+        stop_event.set()
+
+
 def _run_health_server(settings: Settings, queue: RedisQueue, metrics: RuntimeMetrics,
                         port: int, stop_event: threading.Event) -> None:
     import uvicorn
@@ -116,6 +129,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="serve /health and /metrics on this port (optional)")
     parser.add_argument("--status-interval", type=float, default=10.0,
                         help="seconds between console status snapshots, 0 to disable (default: 10.0)")
+    parser.add_argument("--record", default=None,
+                        help="append every published tick to this JSONL file for later replay")
+    parser.add_argument("--replay", default=None,
+                        help="replay ticks from this JSONL file instead of the live KIS websocket")
     return parser
 
 
@@ -123,13 +140,18 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    settings = Settings()
-    if not settings.kis_appkey.strip() or not settings.kis_appsecret.strip():
-        raise SystemExit("KIS_APPKEY and KIS_APPSECRET are required to start the tick collector")
-    if not settings.is_paper:
-        settings.validate_for_live()
+    if args.record and args.replay:
+        raise SystemExit("--record and --replay cannot be used together, pass not both")
 
-    queue = RedisQueue(settings.redis_host, settings.redis_port)
+    settings = Settings()
+    if args.replay is None:
+        if not settings.kis_appkey.strip() or not settings.kis_appsecret.strip():
+            raise SystemExit("KIS_APPKEY and KIS_APPSECRET are required to start the tick collector")
+        if not settings.is_paper:
+            settings.validate_for_live()
+
+    raw_queue = RedisQueue(settings.redis_host, settings.redis_port)
+    queue = RecordingQueue(raw_queue, args.record) if args.record else raw_queue
     metrics = RuntimeMetrics()
     stop_event = threading.Event()
 
@@ -143,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     threads = [threading.Thread(
         target=_run_trading_loop,
         args=(settings, queue, metrics, stop_event, args.poll_interval, args.quantity),
+        kwargs={"enforce_market_hours": args.replay is None},
         name="trading-loop", daemon=True,
     )]
     if args.health_port is not None:
@@ -160,9 +183,13 @@ def main(argv: list[str] | None = None) -> int:
     for thread in threads:
         thread.start()
 
-    logger.info("tick collector starting for symbols=%s paper=%s", args.symbols, settings.is_paper)
+    logger.info("tick collector starting for symbols=%s paper=%s replay=%s",
+                args.symbols, settings.is_paper, args.replay is not None)
     try:
-        asyncio.run(_run_collector(settings, args.symbols, queue, stop_event))
+        if args.replay is not None:
+            asyncio.run(_run_replay(args.replay, queue, stop_event))
+        else:
+            asyncio.run(_run_collector(settings, args.symbols, queue, stop_event))
     finally:
         stop_event.set()
         for thread in threads:

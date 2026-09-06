@@ -1,8 +1,11 @@
 import asyncio
+import json
 import threading
 
+import pytest
+
 from src.engine.order_manager import OrderResult
-from src.main import _log_signal_result, _run_collector, _run_status_logger, build_parser
+from src.main import _log_signal_result, _run_collector, _run_status_logger, build_parser, main
 from src.models import Signal, SignalAction
 from src.monitoring.metrics import RuntimeMetrics
 
@@ -96,3 +99,52 @@ class FakeSettings:
     kis_appsecret = "secret"
     kis_base_url = "https://example.invalid"
     is_paper = True
+
+
+def test_build_parser_accepts_record_and_replay_flags():
+    args = build_parser().parse_args(["005930", "--record", "ticks.jsonl"])
+    assert args.record == "ticks.jsonl"
+    assert args.replay is None
+
+    args = build_parser().parse_args(["005930", "--replay", "ticks.jsonl"])
+    assert args.replay == "ticks.jsonl"
+    assert args.record is None
+
+
+def test_main_rejects_record_and_replay_together(tmp_path, monkeypatch):
+    monkeypatch.setenv("KIS_APPKEY", "key")
+    monkeypatch.setenv("KIS_APPSECRET", "secret")
+    monkeypatch.setenv("PAPER_TRADING", "true")
+
+    with pytest.raises(SystemExit, match="not both"):
+        main(["005930", "--record", "a.jsonl", "--replay", "b.jsonl"])
+
+
+def test_main_replay_mode_runs_without_kis_credentials(tmp_path, monkeypatch):
+    replay_path = tmp_path / "ticks.jsonl"
+    replay_path.write_text(
+        json.dumps({"ts": 1.0, "payload": {
+            "symbol": "005930", "price": 70000, "volume": 10,
+        }}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KIS_APPKEY", "")
+    monkeypatch.setenv("KIS_APPSECRET", "")
+    monkeypatch.setenv("PAPER_TRADING", "true")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "trades.sqlite3"))
+
+    class FakeQueue:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def publish(self, message):
+            return "1-0"
+
+        def read(self, last_id="0-0", count=10):
+            return []
+
+    monkeypatch.setattr("src.main.RedisQueue", FakeQueue)
+
+    result = main(["005930", "--replay", str(replay_path), "--status-interval", "0"])
+
+    assert result == 0
