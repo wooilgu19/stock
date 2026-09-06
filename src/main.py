@@ -98,6 +98,12 @@ async def _run_collector(settings: Settings, symbols: list[str], queue: RedisQue
 async def _run_replay(path: str, queue: RedisQueue, stop_event: threading.Event) -> None:
     try:
         await replay_ticks(path, queue, stop_event)
+        # Give the trading loop one more chance to drain the last published
+        # ticks before stopping it — TradingRuntime.run only checks
+        # stop_event at the top of each cycle, so ticks published right
+        # before replay finishes (or an entire short recording) could
+        # otherwise never be read.
+        await asyncio.sleep(2.0)
     finally:
         # Replay finished (or hit an error) — nothing is publishing ticks
         # anymore, so the trading loop must stop instead of polling forever.
@@ -141,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if args.record and args.replay:
-        raise SystemExit("--record and --replay cannot be used together, pass not both")
+        raise SystemExit("--record and --replay cannot be used together")
 
     settings = Settings()
     if args.replay is None:
@@ -149,6 +155,14 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("KIS_APPKEY and KIS_APPSECRET are required to start the tick collector")
         if not settings.is_paper:
             settings.validate_for_live()
+    elif not settings.is_paper:
+        # Replaying skips the wall-clock market-hours check (see
+        # build_order_manager's enforce_market_hours=False below), so
+        # replaying old ticks in live mode could submit real orders against
+        # a real brokerage account with that safety check disabled.
+        raise SystemExit(
+            "--replay requires PAPER_TRADING=true; refusing to replay recorded ticks against a live account"
+        )
 
     raw_queue = RedisQueue(settings.redis_host, settings.redis_port)
     queue = RecordingQueue(raw_queue, args.record) if args.record else raw_queue
@@ -187,7 +201,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.symbols, settings.is_paper, args.replay is not None)
     try:
         if args.replay is not None:
-            asyncio.run(_run_replay(args.replay, queue, stop_event))
+            try:
+                asyncio.run(_run_replay(args.replay, queue, stop_event))
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
         else:
             asyncio.run(_run_collector(settings, args.symbols, queue, stop_event))
     finally:

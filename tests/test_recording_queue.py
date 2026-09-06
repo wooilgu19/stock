@@ -22,6 +22,19 @@ def test_publish_forwards_to_inner_queue_and_returns_its_id(tmp_path):
     assert inner.published == [{"symbol": "005930", "price": 70000}]
 
 
+def test_delegates_unknown_attributes_to_inner_queue(tmp_path):
+    class QueueWithRead:
+        def publish(self, message):
+            return "1-0"
+
+        def read(self, last_id="0-0", count=10):
+            return [("1-0", {"symbol": "005930"})]
+
+    recorder = RecordingQueue(QueueWithRead(), tmp_path / "ticks.jsonl")
+
+    assert recorder.read() == [("1-0", {"symbol": "005930"})]
+
+
 def test_publish_appends_one_jsonl_line_per_call(tmp_path):
     inner = FakeQueue()
     path = tmp_path / "ticks.jsonl"

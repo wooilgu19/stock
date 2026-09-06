@@ -28,3 +28,10 @@ class RecordingQueue:
         except (OSError, TypeError, ValueError):
             logger.warning("failed to record tick to %s", self.path, exc_info=True)
         return result
+
+    def __getattr__(self, name: str) -> Any:
+        # Only publish() is intercepted (to also append to the recording
+        # file); every other attribute/method (read, ping, stream, ...)
+        # passes straight through to the wrapped queue untouched, so this
+        # stays a drop-in wrapper for callers that need more than publish().
+        return getattr(self.inner, name)

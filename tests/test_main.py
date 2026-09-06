@@ -4,6 +4,7 @@ import threading
 
 import pytest
 
+from src.config import Settings
 from src.engine.order_manager import OrderResult
 from src.main import _log_signal_result, _run_collector, _run_status_logger, build_parser, main
 from src.models import Signal, SignalAction
@@ -116,8 +117,22 @@ def test_main_rejects_record_and_replay_together(tmp_path, monkeypatch):
     monkeypatch.setenv("KIS_APPSECRET", "secret")
     monkeypatch.setenv("PAPER_TRADING", "true")
 
-    with pytest.raises(SystemExit, match="not both"):
+    with pytest.raises(SystemExit, match="cannot be used together"):
         main(["005930", "--record", "a.jsonl", "--replay", "b.jsonl"])
+
+
+def test_main_rejects_replay_in_live_mode(tmp_path, monkeypatch):
+    # Settings' dataclass field defaults are captured from the environment
+    # once at import time (see tests/conftest.py), so monkeypatch.setenv
+    # alone doesn't reach a fresh Settings() here — construct one directly
+    # with the fields under test instead.
+    monkeypatch.setattr(
+        "src.main.Settings",
+        lambda: Settings(kis_appkey="key", kis_appsecret="secret", paper_trading=False),
+    )
+
+    with pytest.raises(SystemExit, match="PAPER_TRADING"):
+        main(["005930", "--replay", str(tmp_path / "ticks.jsonl")])
 
 
 def test_main_replay_mode_runs_without_kis_credentials(tmp_path, monkeypatch):
@@ -133,14 +148,18 @@ def test_main_replay_mode_runs_without_kis_credentials(tmp_path, monkeypatch):
     monkeypatch.setenv("PAPER_TRADING", "true")
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "trades.sqlite3"))
 
+    fake_queues = []
+
     class FakeQueue:
         def __init__(self, *args, **kwargs):
-            pass
+            self.read_calls = 0
+            fake_queues.append(self)
 
         def publish(self, message):
             return "1-0"
 
         def read(self, last_id="0-0", count=10):
+            self.read_calls += 1
             return []
 
     monkeypatch.setattr("src.main.RedisQueue", FakeQueue)
@@ -148,3 +167,61 @@ def test_main_replay_mode_runs_without_kis_credentials(tmp_path, monkeypatch):
     result = main(["005930", "--replay", str(replay_path), "--status-interval", "0"])
 
     assert result == 0
+    # Prove the trading loop actually ran a cycle against the replayed tick
+    # stream (queue.read() was called), not merely that main() returned 0 —
+    # see Important 3 in the whole-branch review: the replay's drain window
+    # must give the trading loop at least one chance to poll.
+    assert fake_queues and fake_queues[0].read_calls > 0
+
+
+def test_main_record_mode_lets_trading_loop_read_ticks(tmp_path, monkeypatch, caplog):
+    # Regression for Critical 1: RecordingQueue used to only implement
+    # publish(), but the SAME wrapped queue is also handed to the trading
+    # loop, which calls .read(). Without __getattr__ delegation every cycle
+    # raised AttributeError and the process silently processed zero ticks.
+    monkeypatch.setattr(
+        "src.main.Settings",
+        lambda: Settings(
+            kis_appkey="key", kis_appsecret="secret", paper_trading=True,
+            database_path=tmp_path / "trades.sqlite3",
+        ),
+    )
+
+    fake_queues = []
+
+    class FakeQueue:
+        def __init__(self, *args, **kwargs):
+            self.read_calls = 0
+            fake_queues.append(self)
+
+        def publish(self, message):
+            return "1-0"
+
+        def read(self, last_id="0-0", count=10):
+            self.read_calls += 1
+            return []
+
+    class OneTickStreamClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_to_queue(self, symbols, queue):
+            queue.publish({"symbol": "005930", "price": 70000, "volume": 10})
+            await asyncio.sleep(0.1)
+            raise RuntimeError("reconnect limit exceeded")
+
+    monkeypatch.setattr("src.main.RedisQueue", FakeQueue)
+    monkeypatch.setattr("src.main.KISWebSocketClient", OneTickStreamClient)
+
+    record_path = tmp_path / "out.jsonl"
+    with caplog.at_level("ERROR"):
+        result = main(["005930", "--record", str(record_path), "--status-interval", "0"])
+
+    assert result == 0
+    assert "AttributeError" not in caplog.text
+    # The trading loop actually polled the recording-wrapped queue.
+    assert fake_queues and fake_queues[0].read_calls > 0
+    # publish() still recorded the tick to the file.
+    assert json.loads(record_path.read_text(encoding="utf-8").splitlines()[0])["payload"] == {
+        "symbol": "005930", "price": 70000, "volume": 10,
+    }
