@@ -1,4 +1,4 @@
-# 개발 현황 및 실행 가이드
+﻿# 개발 현황 및 실행 가이드
 
 작성 기준: 2026-08-16
 
@@ -183,6 +183,26 @@ python -m src.main 005930 000660 --quantity 1 --poll-interval 1.0 --health-port 
 `src/main.py`의 `_run_trading_loop`에서 predictor 생성 부분만 교체하면
 됩니다.
 
+
+### Off-hours observation (record/replay)
+
+Market data only flows during weekday KRX hours (09:00-15:30 KST). To observe
+the pipeline at night or on weekends, record real ticks during market hours
+and replay them later at their original pace:
+
+```powershell
+# During market hours: trade normally AND record every tick to a file
+python -m src.main 005930 --record ticks_20260907.jsonl
+
+# Later (any time): replay those ticks through the same pipeline
+python -m src.main 005930 --replay ticks_20260907.jsonl
+```
+
+`--replay` does not require valid KIS credentials (no live connection is
+made) and does not apply the wall-clock market-hours check — the replayed
+ticks are trusted to represent an already-valid trading session. `--record`
+and `--replay` cannot be combined.
+
 프로그램 안에서 직접 조립하고 싶다면 다음과 같이 API를 사용할 수 있습니다:
 
 ```python
@@ -252,3 +272,4 @@ FastAPI/uvicorn으로 외부에 노출할 때는 인증·네트워크 접근제�
 현재 코드와 테스트는 이 외부 검증을 수행할 수 있도록 adapter, smoke command,
 오류 처리, metrics, health endpoint를 제공합니다. credentials가 없는 환경에서는
 위 smoke command를 실행하지 말고 단위 테스트와 `validate-config`까지만 실행합니다.
+
