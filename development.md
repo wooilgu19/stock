@@ -1,4 +1,4 @@
-﻿# 개발 현황 및 실행 가이드
+# 개발 현황 및 실행 가이드
 
 작성 기준: 2026-08-16
 
@@ -184,25 +184,6 @@ python -m src.main 005930 000660 --quantity 1 --poll-interval 1.0 --health-port 
 됩니다.
 
 
-### Off-hours observation (record/replay)
-
-Market data only flows during weekday KRX hours (09:00-15:30 KST). To observe
-the pipeline at night or on weekends, record real ticks during market hours
-and replay them later at their original pace:
-
-```powershell
-# During market hours: trade normally AND record every tick to a file
-python -m src.main 005930 --record ticks_20260907.jsonl
-
-# Later (any time): replay those ticks through the same pipeline
-python -m src.main 005930 --replay ticks_20260907.jsonl
-```
-
-`--replay` does not require valid KIS credentials (no live connection is
-made) and does not apply the wall-clock market-hours check — the replayed
-ticks are trusted to represent an already-valid trading session. `--record`
-and `--replay` cannot be combined.
-
 프로그램 안에서 직접 조립하고 싶다면 다음과 같이 API를 사용할 수 있습니다:
 
 ```python
@@ -226,6 +207,32 @@ runtime.run(Event(), count=10)
 
 이 경우에도 `RedisQueue`를 queue로 주입하고, `KISWebSocketClient`의
 `stream_to_queue()`를 별도 async task/process로 실행해야 합니다.
+
+### 장 마감 후 관찰 (record/replay)
+
+시세는 평일 KRX 정규장 시간(09:00-15:30 KST)에만 흐릅니다. 야간이나 주말에도
+파이프라인 동작을 관찰할 수 있도록, 장중에는 실제 틱을 기록해두고 나중에
+원래 속도 그대로 재생할 수 있습니다:
+
+```powershell
+# 장중: 평소처럼 매매하면서 모든 틱을 파일에도 기록
+python -m src.main 005930 --record ticks_20260907.jsonl
+
+# 이후 아무 때나: 기록된 틱을 같은 파이프라인으로 재생
+python -m src.main 005930 --replay ticks_20260907.jsonl
+```
+
+`--replay`는 실제 KIS 자격 증명이 필요 없고(실시간 연결을 맺지 않음) 벽시계
+기준 장중 시간 체크도 적용하지 않습니다 — 재생되는 틱은 이미 유효했던 매매
+세션을 나타낸다고 신뢰하기 때문입니다. `--record`와 `--replay`는 함께 쓸 수
+없으며, `PAPER_TRADING=false`(실거래) 상태에서는 `--replay`가 거부됩니다 —
+장중 안전장치가 꺼진 상태로 재생 틱이 실거래 계좌에 실제 주문을 낼 수 있기
+때문입니다.
+
+같은 기록을 두 번 재생하면 모의투자 주문이 중복으로 쌓입니다(모의 주문
+ID가 틱 시각에서 파생되고 중복 제거 로직이 없음). 관찰용 도구로서는 감수할
+수 있는 한계지만, 재생을 반복해서 돌릴 때는 `DATABASE_PATH`를 매번 새
+스크래치 파일로 지정하는 것을 권장합니다.
 
 ## 6. Health 및 Metrics
 
