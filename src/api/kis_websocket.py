@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Iterable
 from datetime import datetime, timezone
 from typing import Any
@@ -12,6 +13,8 @@ import websockets
 
 from src.models import Tick
 
+logger = logging.getLogger(__name__)
+
 
 REALTIME_PRICE_TR_ID = "H0STCNT0"
 REAL_WS_URL = "ws://ops.koreainvestment.com:21000"
@@ -19,6 +22,11 @@ PAPER_WS_URL = "ws://ops.koreainvestment.com:31000"
 # H0STCNT0 packs this many pipe-delimited fields per execution record; a
 # multi-record frame (count > 1) concatenates that many of them back to back.
 _RECORD_FIELD_COUNT = 46
+# KIS's live gateway drops trailing empty optional fields instead of sending
+# them as empty pipe segments, so a real record can be shorter than the
+# documented 46 -- but never shorter than the fields this client actually
+# reads (symbol, exec time, price, volume -- highest index 12).
+_RECORD_FIELDS_REQUIRED = 13
 _KST = ZoneInfo("Asia/Seoul")
 
 
@@ -115,7 +123,12 @@ class KISWebSocketClient:
             count = int(parts[2])
         except ValueError as exc:
             raise KISWebSocketError("invalid H0STCNT0 record count") from exc
-        if count <= 0 or len(fields) < count * _RECORD_FIELD_COUNT:
+        # Only the last record in a frame can be short (KIS trims trailing
+        # empty fields off the wire, never mid-frame), so every record but
+        # the last must still be full-width; the last only needs the fields
+        # this client reads.
+        min_len = (count - 1) * _RECORD_FIELD_COUNT + _RECORD_FIELDS_REQUIRED
+        if count <= 0 or len(fields) < min_len:
             raise KISWebSocketError("H0STCNT0 payload has too few fields")
         ticks = []
         for offset in range(0, count * _RECORD_FIELD_COUNT, _RECORD_FIELD_COUNT):
@@ -163,7 +176,15 @@ class KISWebSocketClient:
                     for symbol in symbols:
                         await socket.send(self.subscription_message(approval_key, symbol))
                     async for message in socket:
-                        for tick in self.parse_ticks(message):
+                        try:
+                            ticks = self.parse_ticks(message)
+                        except KISWebSocketError:
+                            # One malformed frame must not take down a
+                            # multi-hour session; log it for post-mortem and
+                            # keep reading -- the next frame is independent.
+                            logger.exception("dropping unparseable H0STCNT0 message: %r", message)
+                            continue
+                        for tick in ticks:
                             yield tick
                     raise _StreamClosedNormally()
             except (websockets.exceptions.ConnectionClosed, OSError,

@@ -160,5 +160,30 @@ def test_invalid_payload_is_rejected():
         KISWebSocketClient.parse_message("0|H0STCNT0|001|005930|bad")
 
 
+def test_single_record_frame_with_trailing_fields_trimmed_is_still_parsed():
+    """KIS's live gateway drops trailing empty optional fields on the wire,
+    so a real single-record frame can be shorter than the documented 46
+    fields -- as long as the fields this client reads (indices 0-12) are
+    present. This is what actually arrived at 2026-09-07 market open and
+    crashed the collector before this fix.
+    """
+    record = make_record()[:13]  # only the fields the client reads
+    frame = f"0|H0STCNT0|001|{'|'.join(record)}"
+    tick = KISWebSocketClient.parse_message(frame)
+    assert tick.symbol == "005930"
+    assert tick.price == 70000
+    assert tick.volume == 1234
+
+
+def test_multi_record_frame_still_rejects_genuinely_truncated_payload():
+    """The trimmed-trailing-fields tolerance only covers what a real KIS
+    frame can legitimately look like (down to 13 fields on the last
+    record); a frame far shorter than that is still a real error.
+    """
+    frame = "0|H0STCNT0|002|" + "|".join(make_record()[:5])
+    with pytest.raises(KISWebSocketError):
+        KISWebSocketClient.parse_ticks(frame)
+
+
 def test_json_ack_is_ignored():
     assert KISWebSocketClient.parse_message('{"header":{"tr_id":"H0STCNT0"}}') is None
