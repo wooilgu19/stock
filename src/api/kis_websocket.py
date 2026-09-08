@@ -19,14 +19,11 @@ logger = logging.getLogger(__name__)
 REALTIME_PRICE_TR_ID = "H0STCNT0"
 REAL_WS_URL = "ws://ops.koreainvestment.com:21000"
 PAPER_WS_URL = "ws://ops.koreainvestment.com:31000"
-# H0STCNT0 packs this many pipe-delimited fields per execution record; a
+# H0STCNT0 packs this many caret-delimited fields per execution record; a
 # multi-record frame (count > 1) concatenates that many of them back to back.
+# Confirmed against a real 2026-09-08 live frame: count=040, 040*46=1840
+# caret-separated fields exactly.
 _RECORD_FIELD_COUNT = 46
-# KIS's live gateway drops trailing empty optional fields instead of sending
-# them as empty pipe segments, so a real record can be shorter than the
-# documented 46 -- but never shorter than the fields this client actually
-# reads (symbol, exec time, price, volume -- highest index 12).
-_RECORD_FIELDS_REQUIRED = 13
 _KST = ZoneInfo("Asia/Seoul")
 
 
@@ -115,20 +112,17 @@ class KISWebSocketClient:
             message = message.decode("utf-8")
         if message.startswith("{"):
             return []
+        # Only the envelope (encrypt_flag|tr_id|record_count|...) is
+        # pipe-delimited; the record data itself is caret-delimited.
         parts = message.split("|", 3)
         if len(parts) != 4 or parts[0] != "0" or parts[1] != REALTIME_PRICE_TR_ID:
             return []
-        fields = parts[3].split("|")
+        fields = parts[3].split("^")
         try:
             count = int(parts[2])
         except ValueError as exc:
             raise KISWebSocketError("invalid H0STCNT0 record count") from exc
-        # Only the last record in a frame can be short (KIS trims trailing
-        # empty fields off the wire, never mid-frame), so every record but
-        # the last must still be full-width; the last only needs the fields
-        # this client reads.
-        min_len = (count - 1) * _RECORD_FIELD_COUNT + _RECORD_FIELDS_REQUIRED
-        if count <= 0 or len(fields) < min_len:
+        if count <= 0 or len(fields) != count * _RECORD_FIELD_COUNT:
             raise KISWebSocketError("H0STCNT0 payload has too few fields")
         ticks = []
         for offset in range(0, count * _RECORD_FIELD_COUNT, _RECORD_FIELD_COUNT):

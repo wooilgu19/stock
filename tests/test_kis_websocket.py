@@ -19,7 +19,7 @@ def make_record(symbol="005930", exec_time="101530", price="70000", volume="1234
 
 
 def make_frame(*records):
-    body = "|".join(field for record in records for field in record)
+    body = "^".join(field for record in records for field in record)
     return f"0|H0STCNT0|{len(records):03d}|{body}"
 
 
@@ -160,27 +160,32 @@ def test_invalid_payload_is_rejected():
         KISWebSocketClient.parse_message("0|H0STCNT0|001|005930|bad")
 
 
-def test_single_record_frame_with_trailing_fields_trimmed_is_still_parsed():
-    """KIS's live gateway drops trailing empty optional fields on the wire,
-    so a real single-record frame can be shorter than the documented 46
-    fields -- as long as the fields this client reads (indices 0-12) are
-    present. This is what actually arrived at 2026-09-07 market open and
-    crashed the collector before this fix.
+def test_real_market_open_frame_is_parsed():
+    """Regression test for a real 2026-09-08 market-open frame captured in
+    logs/record_20260908.log. Every field in that frame -- and every other
+    frame that day -- was caret-delimited, not pipe-delimited; only the
+    envelope (encrypt_flag|tr_id|record_count|...) uses pipes. Parsing the
+    body with split("|") always found exactly one field and rejected every
+    single frame that day (88551 dropped, 0 ticks recorded), independent of
+    the field-count threshold.
     """
-    record = make_record()[:13]  # only the fields the client reads
-    frame = f"0|H0STCNT0|001|{'|'.join(record)}"
+    frame = (
+        "0|H0STCNT0|001|005930^090018^272000^2^2000^0.74^272000.00^272000^"
+        "272000^272000^272500^272000^200607^200731^54598584000^0^0^0^0.00^"
+        "0^0^^0.01^1.10^090018^3^0^090018^3^0^090018^3^0^20260908^20^N^"
+        "49188^11804^144315^27624^0.00^0^0.00^0^^272000"
+    )
     tick = KISWebSocketClient.parse_message(frame)
     assert tick.symbol == "005930"
-    assert tick.price == 70000
-    assert tick.volume == 1234
+    assert tick.price == 272000
+    assert tick.volume == 200607
 
 
-def test_multi_record_frame_still_rejects_genuinely_truncated_payload():
-    """The trimmed-trailing-fields tolerance only covers what a real KIS
-    frame can legitimately look like (down to 13 fields on the last
-    record); a frame far shorter than that is still a real error.
+def test_pipe_delimited_body_is_rejected():
+    """A body that still uses pipes instead of carets (the 2026-09-07/08
+    bug) must not be silently accepted as a 1-field record.
     """
-    frame = "0|H0STCNT0|002|" + "|".join(make_record()[:5])
+    frame = f"0|H0STCNT0|001|{'|'.join(make_record())}"
     with pytest.raises(KISWebSocketError):
         KISWebSocketClient.parse_ticks(frame)
 
