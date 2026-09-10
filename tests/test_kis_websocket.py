@@ -192,3 +192,62 @@ def test_pipe_delimited_body_is_rejected():
 
 def test_json_ack_is_ignored():
     assert KISWebSocketClient.parse_message('{"header":{"tr_id":"H0STCNT0"}}') is None
+
+
+class _FakeSocket:
+    def __init__(self, messages):
+        self.messages = list(messages)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+    async def send(self, message):
+        return None
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.messages:
+            return self.messages.pop(0)
+        raise StopAsyncIteration
+
+
+def test_stream_to_queue_drops_tick_on_publish_failure_and_keeps_going(monkeypatch):
+    """A transient queue.publish() failure (e.g. Redis's Windows port
+    crashing its BGSAVE fork, see server_log.txt 2026-09-09 09:05:26) must
+    not end the whole collection session -- the tick is dropped and the
+    next one is still forwarded.
+    """
+    frame = make_frame(make_record(symbol="005930"), make_record(symbol="000660"))
+    socket = _FakeSocket([frame])
+    monkeypatch.setattr("src.api.kis_websocket.websockets.connect", lambda *a, **k: socket)
+
+    class FakeQueue:
+        def __init__(self):
+            self.published = []
+            self.calls = 0
+
+        def publish(self, message):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("Redis publish failed")
+            self.published.append(message)
+
+    queue = FakeQueue()
+    client = KISWebSocketClient(
+        "key", "secret", max_reconnects=0,
+        http_session=FakeHTTPSession(FakeHTTPResponse({"approval_key": "approval"})),
+    )
+
+    async def scenario():
+        with pytest.raises(KISWebSocketError, match="reconnect limit exceeded"):
+            await client.stream_to_queue(["005930"], queue)
+
+    asyncio.run(scenario())
+
+    assert queue.calls == 2
+    assert [m["symbol"] for m in queue.published] == ["000660"]

@@ -191,9 +191,18 @@ class KISWebSocketClient:
     async def stream_to_queue(self, symbols: Iterable[str], queue: Any) -> None:
         """Forward parsed ticks to an object exposing ``publish(dict)``."""
         async for tick in self.stream(symbols):
-            await asyncio.to_thread(queue.publish, {
+            message = {
                 "symbol": tick.symbol,
                 "price": tick.price,
                 "volume": tick.volume,
                 "timestamp": tick.timestamp.isoformat(),
-            })
+            }
+            try:
+                await asyncio.to_thread(queue.publish, message)
+            except Exception:
+                # A transient queue failure must not end a multi-hour
+                # session -- e.g. this Windows Redis port crashed its
+                # BGSAVE fork mid-stream on 2026-09-09 09:05:26 and closed
+                # every client connection. redis-py reconnects lazily on
+                # the next call, so just drop this one tick and keep going.
+                logger.exception("dropping tick after queue publish failure: %s", message)
