@@ -5,12 +5,14 @@ from zoneinfo import ZoneInfo
 import pytest
 import requests
 
-from src.api.kis_websocket import KISWebSocketClient, KISWebSocketError, _RECORD_FIELD_COUNT
+from src.api.kis_websocket import KISWebSocketClient, KISWebSocketError
+
+_TEST_RECORD_WIDTH = 46  # arbitrary -- parse_ticks derives width from the message itself
 
 
 def make_record(symbol="005930", exec_time="101530", price="70000", volume="1234"):
-    """Build one 46-field H0STCNT0 record with the fields the client reads set."""
-    fields = ["0"] * _RECORD_FIELD_COUNT
+    """Build one H0STCNT0 record with the fields the client reads set."""
+    fields = ["0"] * _TEST_RECORD_WIDTH
     fields[0] = symbol
     fields[1] = exec_time
     fields[2] = price
@@ -179,6 +181,42 @@ def test_real_market_open_frame_is_parsed():
     assert tick.symbol == "005930"
     assert tick.price == 272000
     assert tick.volume == 200607
+
+
+def test_47_field_record_width_is_parsed():
+    """Regression test for a real 2026-09-16 frame captured in
+    logs/record_20260916.log. KIS silently widened H0STCNT0 records from
+    46 to 47 caret-delimited fields (an extra trailing field appeared)
+    sometime between 2026-09-09 and 2026-09-16, and the hardcoded-46
+    assumption from the 2026-09-08 fix rejected every single frame that
+    day (396+ dropped, 0 ticks recorded) until this fix, which derives
+    the per-record width from len(fields) / record_count instead of
+    hardcoding it.
+    """
+    frame = (
+        "0|H0STCNT0|001|005930^121416^252500^2^4000^1.61^250101.88^248000^"
+        "253000^247500^252500^252000^6^5330910^1333270529750^29744^24325^"
+        "-5419^180.31^1798115^3242191^1^0.61^46.62^090021^2^4500^120853^5^"
+        "-500^090023^2^5000^20260916^20^N^3802^59316^454007^554242^0.09^"
+        "5277247^101.02^0^^248000^2"
+    )
+    tick = KISWebSocketClient.parse_message(frame)
+    assert tick.symbol == "005930"
+    assert tick.price == 252500
+    assert tick.volume == 6
+
+
+def test_multi_record_frame_with_47_field_width_yields_one_tick_per_record():
+    """Same 2026-09-16 width change, but for a multi-record frame -- proves
+    the per-frame-derived width (not a hardcoded stride) is used to split
+    concatenated records, not just to validate a single record.
+    """
+    record_a = make_record(symbol="005930", exec_time="121416", price="252500", volume="6")
+    record_b = make_record(symbol="005930", exec_time="121417", price="253000", volume="3")
+    frame = "0|H0STCNT0|002|" + "^".join(record_a + ["2"] + record_b + ["2"])
+    ticks = KISWebSocketClient.parse_ticks(frame)
+    assert [t.price for t in ticks] == [252500, 253000]
+    assert [t.volume for t in ticks] == [6, 3]
 
 
 def test_pipe_delimited_body_is_rejected():

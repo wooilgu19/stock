@@ -19,11 +19,14 @@ logger = logging.getLogger(__name__)
 REALTIME_PRICE_TR_ID = "H0STCNT0"
 REAL_WS_URL = "ws://ops.koreainvestment.com:21000"
 PAPER_WS_URL = "ws://ops.koreainvestment.com:31000"
-# H0STCNT0 packs this many caret-delimited fields per execution record; a
-# multi-record frame (count > 1) concatenates that many of them back to back.
-# Confirmed against a real 2026-09-08 live frame: count=040, 040*46=1840
-# caret-separated fields exactly.
-_RECORD_FIELD_COUNT = 46
+# H0STCNT0 packs a fixed number of caret-delimited fields per execution
+# record; a multi-record frame (count > 1) concatenates that many records
+# back to back. KIS has changed this width without notice before (46
+# fields on 2026-09-08, 47 as of 2026-09-16), so the width is derived per
+# message from len(fields) / record_count instead of hardcoded -- this
+# client only reads fields up to index 12, so any width >= that keeps
+# working regardless of what KIS appends at the end.
+_RECORD_FIELDS_REQUIRED = 13
 _KST = ZoneInfo("Asia/Seoul")
 
 
@@ -122,11 +125,14 @@ class KISWebSocketClient:
             count = int(parts[2])
         except ValueError as exc:
             raise KISWebSocketError("invalid H0STCNT0 record count") from exc
-        if count <= 0 or len(fields) != count * _RECORD_FIELD_COUNT:
+        if count <= 0 or len(fields) % count != 0:
+            raise KISWebSocketError("H0STCNT0 payload has too few fields")
+        record_width = len(fields) // count
+        if record_width < _RECORD_FIELDS_REQUIRED:
             raise KISWebSocketError("H0STCNT0 payload has too few fields")
         ticks = []
-        for offset in range(0, count * _RECORD_FIELD_COUNT, _RECORD_FIELD_COUNT):
-            group = fields[offset:offset + _RECORD_FIELD_COUNT]
+        for offset in range(0, count * record_width, record_width):
+            group = fields[offset:offset + record_width]
             try:
                 ticks.append(Tick(symbol=group[0], price=float(group[2]),
                                   volume=int(group[12]),
