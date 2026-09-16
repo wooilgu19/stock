@@ -23,7 +23,7 @@ class MarketHours:
         self,
         timezone_name: str = "Asia/Seoul",
         open_time: time = time(9, 0),
-        close_time: time = time(15, 30),
+        close_time: time = time(20, 0),
         holidays: Iterable[date] = (),
     ) -> None:
         if open_time >= close_time:
