@@ -18,16 +18,21 @@ from src.training.split import chronological_split
 from src.training.windowing import build_dataset, compute_future_returns
 
 
-def _load_ticks(path: Path) -> tuple[list[float], list[float]]:
-    prices: list[float] = []
-    volumes: list[float] = []
+def _load_ticks(path: Path) -> dict[str, tuple[list[float], list[float]]]:
+    """Group ticks by symbol so a multi-symbol recording never interleaves
+    unrelated price series (RecordingQueue.publish writes every subscribed
+    symbol's ticks into the same file). JSONL lines are already chronological
+    (append-only), so filtering by symbol preserves per-symbol order."""
+    series: dict[str, tuple[list[float], list[float]]] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         payload = json.loads(line)["payload"]
+        symbol = payload["symbol"]
+        prices, volumes = series.setdefault(symbol, ([], []))
         prices.append(float(payload["price"]))
         volumes.append(float(payload["volume"]))
-    return prices, volumes
+    return series
 
 
 def run_training(ticks_paths: list[Path], window_size: int, lookahead: int, val_ratio: float,
@@ -37,8 +42,9 @@ def run_training(ticks_paths: list[Path], window_size: int, lookahead: int, val_
     torch.manual_seed(seed)
 
     splits = [
-        chronological_split(*_load_ticks(Path(path)), val_ratio=val_ratio, lookahead=lookahead)
+        chronological_split(prices, volumes, val_ratio=val_ratio, lookahead=lookahead)
         for path in ticks_paths
+        for prices, volumes in _load_ticks(Path(path)).values()
     ]
 
     # Thresholds are computed from train-side returns only, across every

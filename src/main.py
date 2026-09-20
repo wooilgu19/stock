@@ -26,7 +26,6 @@ from src.monitoring.metrics import RuntimeMetrics
 from src.queue.recording_queue import RecordingQueue
 from src.queue.redis_queue import RedisQueue
 from src.replay import replay_ticks
-from src.strategies.lstm_strategy import LSTMStrategy
 from src.strategies.moving_average import MovingAverageStrategy
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,11 @@ def _run_trading_loop(settings: Settings, queue: RedisQueue, metrics: RuntimeMet
                        stop_event: threading.Event, poll_interval: float, quantity: int,
                        strategy: str = "moving-average",
                        enforce_market_hours: bool = True) -> None:
-    predictor = LSTMStrategy() if strategy == "lstm" else MovingAverageStrategy()
+    if strategy == "lstm":
+        from src.strategies.lstm_strategy import LSTMStrategy  # heavy torch import; only pay for it when selected
+        predictor = LSTMStrategy()
+    else:
+        predictor = MovingAverageStrategy()
     runtime = build_runtime(
         settings, predictor, queue=queue, quantity=quantity,
         on_result=_log_signal_result, metrics=metrics, poll_interval=poll_interval,
