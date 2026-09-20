@@ -57,6 +57,33 @@ def test_replay_sleeps_for_the_recorded_gap_between_ticks(tmp_path, monkeypatch)
     assert sleeps == [2.5]
 
 
+def test_replay_speed_divides_the_recorded_gap(tmp_path, monkeypatch):
+    path = tmp_path / "ticks.jsonl"
+    write_jsonl(path, [
+        {"ts": 100.0, "payload": {"symbol": "005930", "price": 70000}},
+        {"ts": 160.0, "payload": {"symbol": "005930", "price": 70100}},
+    ])
+    queue = FakeQueue()
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("src.replay.asyncio.sleep", fake_sleep)
+
+    asyncio.run(replay_ticks(path, queue, threading.Event(), speed=60.0))
+
+    assert sleeps == [1.0]
+
+
+def test_replay_rejects_non_positive_speed(tmp_path):
+    path = tmp_path / "ticks.jsonl"
+    write_jsonl(path, [{"ts": 100.0, "payload": {"symbol": "005930", "price": 70000}}])
+
+    with pytest.raises(ValueError, match="speed"):
+        asyncio.run(replay_ticks(path, FakeQueue(), threading.Event(), speed=0))
+
+
 def test_replay_stops_promptly_when_stop_event_is_set(tmp_path, monkeypatch):
     path = tmp_path / "ticks.jsonl"
     write_jsonl(path, [

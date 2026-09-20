@@ -95,9 +95,10 @@ async def _run_collector(settings: Settings, symbols: list[str], queue: RedisQue
         stop_event.set()
 
 
-async def _run_replay(path: str, queue: RedisQueue, stop_event: threading.Event) -> None:
+async def _run_replay(path: str, queue: RedisQueue, stop_event: threading.Event,
+                       speed: float = 1.0) -> None:
     try:
-        await replay_ticks(path, queue, stop_event)
+        await replay_ticks(path, queue, stop_event, speed=speed)
         # Give the trading loop one more chance to drain the last published
         # ticks before stopping it — TradingRuntime.run only checks
         # stop_event at the top of each cycle, so ticks published right
@@ -139,6 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="append every published tick to this JSONL file for later replay")
     parser.add_argument("--replay", default=None,
                         help="replay ticks from this JSONL file instead of the live KIS websocket")
+    parser.add_argument("--replay-speed", type=float, default=1.0,
+                        help="replay this many times faster than the recorded pace, e.g. 60 "
+                             "replays an 11-hour recording in ~11 minutes (default: 1.0, ignored "
+                             "without --replay)")
     return parser
 
 
@@ -202,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.replay is not None:
             try:
-                asyncio.run(_run_replay(args.replay, queue, stop_event))
+                asyncio.run(_run_replay(args.replay, queue, stop_event, speed=args.replay_speed))
             except ValueError as exc:
                 raise SystemExit(str(exc)) from exc
         else:

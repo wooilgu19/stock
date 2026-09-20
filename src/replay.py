@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import Any
 
 
-async def replay_ticks(path: str | Path, queue: Any, stop_event: threading.Event) -> None:
+async def replay_ticks(path: str | Path, queue: Any, stop_event: threading.Event,
+                        speed: float = 1.0) -> None:
+    if speed <= 0:
+        raise ValueError("speed must be positive")
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     if not lines:
         raise ValueError(f"replay file is empty: {path}")
@@ -26,7 +29,7 @@ async def replay_ticks(path: str | Path, queue: Any, stop_event: threading.Event
 
     previous_ts = rows[0]["ts"]
     for row in rows:
-        gap = row["ts"] - previous_ts
+        gap = (row["ts"] - previous_ts) / speed
         if gap > 0:
             await asyncio.sleep(gap)
         if stop_event.is_set():
