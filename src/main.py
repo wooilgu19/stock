@@ -75,6 +75,7 @@ async def _run_collector(settings: Settings, symbols: list[str], queue: RedisQue
     client = KISWebSocketClient(
         settings.kis_appkey, settings.kis_appsecret,
         paper_trading=settings.is_paper, base_url=settings.kis_base_url,
+        max_reconnects=30,  # 1,2,4..60s backoff ≈ 25 min of outage tolerance
     )
     stream_task = asyncio.ensure_future(client.stream_to_queue(symbols, queue))
     stop_task = asyncio.ensure_future(asyncio.to_thread(stop_event.wait))

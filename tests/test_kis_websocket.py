@@ -134,6 +134,44 @@ def test_websocket_reconnects_after_connection_failure(monkeypatch):
     assert tick.symbol == "005930"
 
 
+def test_stream_retries_when_approval_request_fails(monkeypatch):
+    """2026-09-21: a DNS failure in approval_key() killed the collector at 18:44."""
+    class FlakySession:
+        calls = 0
+
+        def post(self, *args, **kwargs):
+            FlakySession.calls += 1
+            if FlakySession.calls == 1:
+                raise requests.ConnectionError("dns down")
+            return FakeHTTPResponse({"approval_key": "approval"})
+
+    class FakeSocket:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def send(self, message):
+            return None
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return make_frame(make_record())
+
+    monkeypatch.setattr("src.api.kis_websocket.websockets.connect", lambda *a, **k: FakeSocket())
+    client = KISWebSocketClient("key", "secret", max_reconnects=1, reconnect_delay=0,
+                                http_session=FlakySession())
+
+    async def first():
+        return await client.stream(["005930"]).__anext__()
+
+    assert asyncio.run(first()).symbol == "005930"
+    assert FlakySession.calls == 2
+
+
 def test_pipe_message_is_converted_to_tick():
     tick = KISWebSocketClient.parse_message(make_frame(make_record()))
     assert tick.symbol == "005930"

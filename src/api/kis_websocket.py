@@ -187,11 +187,16 @@ class KISWebSocketClient:
                         for tick in ticks:
                             yield tick
                     raise _StreamClosedNormally()
-            except (websockets.exceptions.ConnectionClosed, OSError,
+            # KISWebSocketError here can only come from approval_key() (parse
+            # errors are handled per-frame above), e.g. a DNS outage like
+            # 2026-09-18/21 -- retry it like a dropped connection.
+            except (websockets.exceptions.ConnectionClosed, OSError, KISWebSocketError,
                     asyncio.TimeoutError, _StreamClosedNormally) as exc:
                 if reconnects >= self.max_reconnects:
                     raise KISWebSocketError("WebSocket reconnect limit exceeded") from exc
-                await asyncio.sleep(self.reconnect_delay * (2 ** reconnects))
+                logger.warning("collector reconnecting (%d/%d): %s",
+                               reconnects + 1, self.max_reconnects, exc)
+                await asyncio.sleep(min(self.reconnect_delay * (2 ** reconnects), 60.0))
                 reconnects += 1
 
     async def stream_to_queue(self, symbols: Iterable[str], queue: Any) -> None:
