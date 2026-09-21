@@ -15,8 +15,8 @@
 ## 브랜치 머지 완료 (2026-09-21)
 
 `lstm-signal-strategy`(8커밋, `a81ce1f`)를 `dev`에 `--no-ff`로 머지했다. 충돌 없음, 전체 테스트 **178개 통과**.
-**남은 정리**: 워크트리 `.worktrees/lstm-signal-strategy`와 브랜치는 아직 안 지웠다(`git worktree remove` + `git branch -d`).
-워크트리 안의 `models/lstm_v1.pt`(gitignore, 수정 전 코드로 학습)는 지우면 복구 불가지만 재학습으로 다시 만들 수 있다.
+워크트리 `.worktrees/lstm-signal-strategy`와 브랜치는 삭제했다(9/21).
+워크트리와 함께 `models/lstm_v1.pt`(gitignore)도 사라졌으니 `scripts/train_lstm.py`로 재학습해야 한다.
 푸시는 아직 안 했다.
 
 ## LSTM 전략 — 무엇이 만들어졌나
@@ -57,7 +57,7 @@
 - 서브에이전트 보고를 그대로 믿지 말고 `git log`, `git status`, `pytest`를 컨트롤러가 직접 한 번 확인할 것. (Task 5에서 이 확인이 잘못된 보고를 잡았다.)
 - venv는 메인 체크아웃 것을 절대경로로 공유: `D:\BACKUP\10_교육\works\Stock\.venv\Scripts\python.exe`. 워크트리에서 pytest는 워크트리 cwd에서 실행.
 - `data/`는 gitignore라서 **워크트리에는 없다**. 학습하려면 메인 체크아웃의 `data/ticks/ticks_*.jsonl`을 복사해야 한다.
-- `models/lstm_v1.pt`도 gitignore. 워크트리 안에만 있고 메인 체크아웃에는 없다. `python scripts/train_lstm.py`로 다시 만들 수 있다.
+- `models/lstm_v1.pt`도 gitignore이고 현재 없다(워크트리와 함께 삭제됨). `python scripts/train_lstm.py`로 다시 만들 수 있다.
 - `tests/test_main.py::test_main_record_mode_lets_trading_loop_read_ticks`가 전체 스위트에서 가끔 실패(단독/재실행은 통과) — 기존 타이밍 flake로 판단, 이번 변경과 무관.
 
 ## 자동 수집 상태 (미해결 포함)
@@ -72,7 +72,7 @@
 
 ## 다음에 할 일 (우선순위 순)
 
-1. ~~브랜치 머지~~ 완료(9/21). 남은 것: 워크트리·브랜치 정리, 푸시 여부 결정.
+1. ~~브랜치 머지~~ 완료(9/21). 남은 것: 푸시 여부 결정.
 2. ~~9/21(월) 자동 수집 확인~~ 완료(위 "자동 수집 상태" 참고). 이어서 **9/22 수집 확인**: 재시도 수정 반영 여부, 로그에 `collector reconnecting` 경고 유무, 20:00까지 수집기가 살아 있었는지.
 3. **실제 데이터가 쌓인 뒤 LSTM 재학습**. 그 전에 리뷰에서 나온 두 가지를 같이 손볼 것:
    - `train.py`가 풀배치 30스텝뿐이라 사실상 학습이 안 됨 → 미니배치 도입.
