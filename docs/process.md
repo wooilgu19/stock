@@ -9,23 +9,15 @@
 |---|---|---|
 | 1단계 | 신호가 실제로 주문까지 이어지게 (전략 계수 보정) | 완료, `dev`에 머지됨 |
 | 2단계 | 리스크 한도값 (MAX_ORDER_VALUE 100만 / MAX_DAILY_LOSS 10만 / 수량 1주 / MIN_SIGNAL_STRENGTH 0.60) | 값 그대로 유지하기로 결정, 변경 없음 |
-| 3단계 | 딥러닝(LSTM) 신호 전략 연결 | **코드 완료, `dev`에 아직 머지 안 됨** (아래 참고) |
+| 3단계 | 딥러닝(LSTM) 신호 전략 연결 | 코드 완료, `dev`에 머지됨(9/21). 실데이터 재학습 전 |
 | 4단계 | 종목별 수량, 지정가/목표가 매매 | 미착수 |
 
-## 최우선: 브랜치 마무리 결정이 남아 있음
+## 브랜치 머지 완료 (2026-09-21)
 
-`lstm-signal-strategy` 브랜치(`a81ce1f`)가 `dev`보다 8커밋 앞서 있고, 워크트리
-`.worktrees/lstm-signal-strategy`에 그대로 남아 있다. 전체 테스트 **177개 통과**를 마지막으로
-확인했고, 최종 전체 리뷰(opus)의 Important 2건도 수정·재검토 완료 상태다.
-`finishing-a-development-branch` 절차의 Step 4(옵션 선택)에서 멈춘 상태:
-
-1. 로컬에서 `dev`로 머지 (그 뒤 워크트리·브랜치 정리)
-2. 푸시 후 PR 생성
-3. 브랜치 그대로 유지
-
-선택은 사용자 몫이라 아직 실행하지 않았다. 스펙·계획 문서(`docs/superpowers/{specs,plans}/2026-09-20-lstm-signal-strategy*.md`)는
-이미 `dev`에 커밋돼 있고, 구현 코드 8커밋만 브랜치에 남아 있다. 이 문서(`docs/process.md`)는
-아직 커밋하지 않았다.
+`lstm-signal-strategy`(8커밋, `a81ce1f`)를 `dev`에 `--no-ff`로 머지했다. 충돌 없음, 전체 테스트 **178개 통과**.
+**남은 정리**: 워크트리 `.worktrees/lstm-signal-strategy`와 브랜치는 아직 안 지웠다(`git worktree remove` + `git branch -d`).
+워크트리 안의 `models/lstm_v1.pt`(gitignore, 수정 전 코드로 학습)는 지우면 복구 불가지만 재학습으로 다시 만들 수 있다.
+푸시는 아직 안 했다.
 
 ## LSTM 전략 — 무엇이 만들어졌나
 
@@ -65,7 +57,7 @@
 - 서브에이전트 보고를 그대로 믿지 말고 `git log`, `git status`, `pytest`를 컨트롤러가 직접 한 번 확인할 것. (Task 5에서 이 확인이 잘못된 보고를 잡았다.)
 - venv는 메인 체크아웃 것을 절대경로로 공유: `D:\BACKUP\10_교육\works\Stock\.venv\Scripts\python.exe`. 워크트리에서 pytest는 워크트리 cwd에서 실행.
 - `data/`는 gitignore라서 **워크트리에는 없다**. 학습하려면 메인 체크아웃의 `data/ticks/ticks_*.jsonl`을 복사해야 한다.
-- `models/lstm_v1.pt`도 gitignore. 지금은 워크트리 안에만 있고 `dev`에는 없다. `python scripts/train_lstm.py`로 다시 만들 수 있다.
+- `models/lstm_v1.pt`도 gitignore. 워크트리 안에만 있고 메인 체크아웃에는 없다. `python scripts/train_lstm.py`로 다시 만들 수 있다.
 - `tests/test_main.py::test_main_record_mode_lets_trading_loop_read_ticks`가 전체 스위트에서 가끔 실패(단독/재실행은 통과) — 기존 타이밍 flake로 판단, 이번 변경과 무관.
 
 ## 자동 수집 상태 (미해결 포함)
@@ -80,7 +72,7 @@
 
 ## 다음에 할 일 (우선순위 순)
 
-1. **위 브랜치 마무리 결정**(머지/PR/유지). 머지하면 `dev`에서 `python -m pytest -q`로 177개 확인.
+1. ~~브랜치 머지~~ 완료(9/21). 남은 것: 워크트리·브랜치 정리, 푸시 여부 결정.
 2. ~~9/21(월) 자동 수집 확인~~ 완료(위 "자동 수집 상태" 참고). 이어서 **9/22 수집 확인**: 재시도 수정 반영 여부, 로그에 `collector reconnecting` 경고 유무, 20:00까지 수집기가 살아 있었는지.
 3. **실제 데이터가 쌓인 뒤 LSTM 재학습**. 그 전에 리뷰에서 나온 두 가지를 같이 손볼 것:
    - `train.py`가 풀배치 30스텝뿐이라 사실상 학습이 안 됨 → 미니배치 도입.
@@ -100,7 +92,7 @@
 
 ```powershell
 cd "D:\BACKUP\10_교육\works\Stock"
-.\.venv\Scripts\python.exe -m pytest -q                       # dev 기준 152개, 브랜치 머지 후 177개
+.\.venv\Scripts\python.exe -m pytest -q                       # 178개 (LSTM 머지 후)
 .\.venv\Scripts\python.exe scripts\train_lstm.py              # data/ticks/ticks_[0-9]*.jsonl로 학습
 .\.venv\Scripts\python.exe -m src.main 005930 --replay data\ticks\ticks_YYYYMMDD.jsonl --replay-speed 60 --status-interval 0
 .\.venv\Scripts\python.exe -m src.main 005930 --strategy lstm --replay data\ticks\ticks_YYYYMMDD.jsonl --replay-speed 60 --status-interval 0
