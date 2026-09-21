@@ -20,6 +20,24 @@ def test_build_parser_defaults():
     assert args.status_interval == 10.0
 
 
+def test_default_strategy_is_moving_average():
+    # _run_trading_loop (which constructs the actual strategy object) runs on
+    # its own thread inside main(); build_parser's default is what decides
+    # which one, so that's what this asserts directly.
+    args = build_parser().parse_args(["005930"])
+    assert args.strategy == "moving-average"
+
+
+def test_strategy_flag_accepts_lstm():
+    args = build_parser().parse_args(["005930", "--strategy", "lstm"])
+    assert args.strategy == "lstm"
+
+
+def test_strategy_flag_rejects_unknown_value():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["005930", "--strategy", "not-a-real-strategy"])
+
+
 def test_log_signal_result_ignores_hold_signals(caplog):
     _log_signal_result(
         Signal("005930", SignalAction.HOLD, 0.0, 70_000, "baseline"), None,

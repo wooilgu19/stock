@@ -13,3 +13,7 @@ build/
 tools/
 .worktrees/
 logs/
+
+# LSTM checkpoints are trained artifacts, not source -- regenerate with
+# scripts/train_lstm.py
+models/*.pt

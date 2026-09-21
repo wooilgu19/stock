@@ -43,8 +43,13 @@ def _log_signal_result(signal: object, result: object) -> None:
 
 def _run_trading_loop(settings: Settings, queue: RedisQueue, metrics: RuntimeMetrics,
                        stop_event: threading.Event, poll_interval: float, quantity: int,
+                       strategy: str = "moving-average",
                        enforce_market_hours: bool = True) -> None:
-    predictor = MovingAverageStrategy()
+    if strategy == "lstm":
+        from src.strategies.lstm_strategy import LSTMStrategy  # heavy torch import; only pay for it when selected
+        predictor = LSTMStrategy()
+    else:
+        predictor = MovingAverageStrategy()
     runtime = build_runtime(
         settings, predictor, queue=queue, quantity=quantity,
         on_result=_log_signal_result, metrics=metrics, poll_interval=poll_interval,
@@ -131,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the KIS tick collector and trading loop")
     parser.add_argument("symbols", nargs="+", help="six-digit domestic stock symbols to trade")
     parser.add_argument("--quantity", type=int, default=1, help="shares per order (default: 1)")
+    parser.add_argument("--strategy", choices=["moving-average", "lstm"], default="moving-average",
+                        help="signal strategy to run (default: moving-average)")
     parser.add_argument("--poll-interval", type=float, default=1.0,
                         help="trading loop poll interval in seconds (default: 1.0)")
     parser.add_argument("--health-port", type=int, default=None,
@@ -185,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     threads = [threading.Thread(
         target=_run_trading_loop,
         args=(settings, queue, metrics, stop_event, args.poll_interval, args.quantity),
-        kwargs={"enforce_market_hours": args.replay is None},
+        kwargs={"enforce_market_hours": args.replay is None, "strategy": args.strategy},
         name="trading-loop", daemon=True,
     )]
     if args.health_port is not None:
