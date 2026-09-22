@@ -1,7 +1,7 @@
-# 진행 기록 (2026-09-20 세션) — 다음 세션 시작용
+# 진행 기록 (2026-09-22 세션 갱신) — 다음 세션 시작용
 
 이전 기록: `PROCESSING.md`(2026-09-06 세션), `review.md`(감사 4라운드). 이 문서는 그 이후
-2026-09-07 ~ 09-20 사이에 있었던 일과 **지금 상태, 다음에 할 일**만 정리한다.
+2026-09-07 ~ 09-22 사이에 있었던 일과 **지금 상태, 다음에 할 일**만 정리한다.
 
 ## 한눈에 보는 현재 위치
 
@@ -9,7 +9,7 @@
 |---|---|---|
 | 1단계 | 신호가 실제로 주문까지 이어지게 (전략 계수 보정) | 완료, `dev`에 머지됨 |
 | 2단계 | 리스크 한도값 (MAX_ORDER_VALUE 100만 / MAX_DAILY_LOSS 10만 / 수량 1주 / MIN_SIGNAL_STRENGTH 0.60) | 값 그대로 유지하기로 결정, 변경 없음 |
-| 3단계 | 딥러닝(LSTM) 신호 전략 연결 | 코드 완료, `dev`에 머지됨(9/21). 실데이터 재학습 전 |
+| 3단계 | 딥러닝(LSTM) 신호 전략 연결 | 코드 완료, `dev`에 머지·푸시됨. 미니배치/정규화/임계값 분리 완료(9/22). 실데이터 재학습 전 |
 | 4단계 | 종목별 수량, 지정가/목표가 매매 | 미착수 |
 
 ## 브랜치 머지 완료 (2026-09-21)
@@ -17,13 +17,23 @@
 `lstm-signal-strategy`(8커밋, `a81ce1f`)를 `dev`에 `--no-ff`로 머지했다. 충돌 없음, 전체 테스트 **178개 통과**.
 워크트리 `.worktrees/lstm-signal-strategy`와 브랜치는 삭제했다(9/21).
 워크트리와 함께 `models/lstm_v1.pt`(gitignore)도 사라졌으니 `scripts/train_lstm.py`로 재학습해야 한다.
-푸시는 아직 안 했다.
+9/22에 `origin/dev`로 푸시 완료(`b93e0f0..6be5beb`).
+
+## LSTM 리뷰 후속 조치 완료 (2026-09-22, `6be5beb`)
+
+"다음에 할 일" 3번·4번 항목을 처리했다:
+
+- **미니배치 도입**: `train.py`가 epoch당 풀배치 1스텝(총 30스텝)만 밟아 사실상 학습이 안 되던 문제. `torch.utils.data.DataLoader`로 셔플된 미니배치를 도입(`run_training(..., batch_size=64)`, `scripts/train_lstm.py --batch-size`).
+- **채널별 정규화**: `normalize_window`가 가격 수익률(±0.001대)과 `log1p(거래량)`(2~9대)를 그대로 섞어써서 거래량 채널이 입력을 지배하던 문제. 두 채널을 윈도우 단위로 각각 z-score 정규화하도록 변경(`src/training/windowing.py`). 학습/추론(`lstm_strategy.py`)이 같은 순수 함수를 쓰므로 드리프트 없음.
+- **전략별 `MIN_SIGNAL_STRENGTH` 분리**: `RiskGate`에 `min_signal_strength_by_strategy` 옵션 추가, `order.strategy_id`로 임계값을 오버라이드. `Settings.min_signal_strength_lstm`(env `MIN_SIGNAL_STRENGTH_LSTM`, 미설정 시 `MIN_SIGNAL_STRENGTH`와 동일값 — 동작 변화 없음)를 `"lstm"` 전략에 연결(`src/application.py`).
+
+테스트 179개 전체 통과. 기존 체크포인트 포맷(7개 키)은 변경 없음 — 재학습만 하면 새 정규화가 자동 반영됨.
 
 ## LSTM 전략 — 무엇이 만들어졌나
 
 - 스펙: `docs/superpowers/specs/2026-09-20-lstm-signal-strategy-design.md`
 - 계획: `docs/superpowers/plans/2026-09-20-lstm-signal-strategy.md`
-- `src/training/windowing.py` — 윈도우 구성, 정규화(가격은 윈도우 시작가 대비 수익률, 거래량은 log1p), 미래 수익률 기반 라벨링. `LABEL_SELL=0, LABEL_HOLD=1, LABEL_BUY=2`는 여기에서만 정의.
+- `src/training/windowing.py` — 윈도우 구성, 정규화(가격은 윈도우 시작가 대비 수익률, 거래량은 log1p, 두 채널 모두 윈도우 단위 z-score — 9/22 변경), 미래 수익률 기반 라벨링. `LABEL_SELL=0, LABEL_HOLD=1, LABEL_BUY=2`는 여기에서만 정의.
 - `src/training/split.py` — 시간순 train/val 분리(경계에 lookahead 간격, 섞지 않음).
 - `src/training/model.py` — 소형 `LSTMClassifier`(hidden 16, 1층).
 - `src/training/train.py` — `run_training(...)`. 파일·종목별로 따로 분리하고, 라벨 임계값(분위수)은 train 쪽 수익률로만 계산(누수 방지).
@@ -72,14 +82,13 @@
 
 ## 다음에 할 일 (우선순위 순)
 
-1. ~~브랜치 머지~~ 완료(9/21). 남은 것: 푸시 여부 결정.
-2. ~~9/21(월) 자동 수집 확인~~ 완료(위 "자동 수집 상태" 참고). 이어서 **9/22 수집 확인**: 재시도 수정 반영 여부, 로그에 `collector reconnecting` 경고 유무, 20:00까지 수집기가 살아 있었는지.
-3. **실제 데이터가 쌓인 뒤 LSTM 재학습**. 그 전에 리뷰에서 나온 두 가지를 같이 손볼 것:
-   - `train.py`가 풀배치 30스텝뿐이라 사실상 학습이 안 됨 → 미니배치 도입.
-   - 가격 채널(±0.001)과 거래량 채널(log1p, 2~9)의 스케일 차이 → 정규화.
-4. **`MIN_SIGNAL_STRENGTH`가 두 전략에서 과부하**: LSTM 강도는 3클래스 softmax 최댓값이라 0.333 아래로 못 내려가고 미학습 모델은 그 근처에 몰린다. 이동평균은 `0.5+spread*300`. 임계값을 튜닝하기 전에 전략별로 분리할지 결정.
-5. LSTM 스모크 테스트는 리스크 게이트까지만 갔고 주문 관리자까지는 안 갔다(전부 거부됨). 임계값을 낮춰서 한 번 더 돌려 마지막 구간을 확인.
-6. 4단계(종목별 수량, 지정가/목표가 매매).
+1. ~~브랜치 머지~~ 완료(9/21). ~~푸시~~ 완료(9/22, `6be5beb`).
+2. ~~9/21(월) 자동 수집 확인~~ 완료. ~~9/22 수집 확인~~ 완료 — errors=0, cycles 정상 증가, DNS 재시도 수정 반영 상태로 19:30까지 정상 수집 확인. 20:00 마감까지 살아있었는지는 다음 세션에서 최종 로그로 재확인.
+3. ~~`train.py` 미니배치 도입~~ 완료(9/22). ~~가격/거래량 정규화~~ 완료(9/22).
+4. ~~`MIN_SIGNAL_STRENGTH` 전략별 분리~~ 완료(9/22, `RiskGate.min_signal_strength_by_strategy` + `MIN_SIGNAL_STRENGTH_LSTM`).
+5. **다음 순서**: 실제 데이터(9/9, 9/10, 9/21, 9/22)가 쌓였으니 `scripts/train_lstm.py`로 재학습 → val_accuracy가 이전(0.425)보다 나아졌는지 확인.
+6. LSTM 스모크 테스트는 리스크 게이트까지만 갔고 주문 관리자까지는 안 갔다(전부 거부됨). 재학습 후 임계값을 낮춰서 한 번 더 돌려 마지막 구간을 확인.
+7. 4단계(종목별 수량, 지정가/목표가 매매).
 
 ## 리뷰에서 보류한 사소한 항목
 
@@ -92,8 +101,8 @@
 
 ```powershell
 cd "D:\BACKUP\10_교육\works\Stock"
-.\.venv\Scripts\python.exe -m pytest -q                       # 178개 (LSTM 머지 후)
-.\.venv\Scripts\python.exe scripts\train_lstm.py              # data/ticks/ticks_[0-9]*.jsonl로 학습
+.\.venv\Scripts\python.exe -m pytest -q                       # 179개 (미니배치/정규화/전략별 임계값 반영 후)
+.\.venv\Scripts\python.exe scripts\train_lstm.py --batch-size 64   # data/ticks/ticks_[0-9]*.jsonl로 학습
 .\.venv\Scripts\python.exe -m src.main 005930 --replay data\ticks\ticks_YYYYMMDD.jsonl --replay-speed 60 --status-interval 0
 .\.venv\Scripts\python.exe -m src.main 005930 --strategy lstm --replay data\ticks\ticks_YYYYMMDD.jsonl --replay-speed 60 --status-interval 0
 ```
