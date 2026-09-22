@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lookahead", type=int, default=5)
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden-size", type=int, default=16)
     parser.add_argument("--num-layers", type=int, default=1)
@@ -42,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     metrics = run_training(
         ticks_paths=ticks_paths, window_size=args.window_size, lookahead=args.lookahead,
         val_ratio=args.val_ratio, epochs=args.epochs, lr=args.lr, output_path=Path(args.output),
-        hidden_size=args.hidden_size, num_layers=args.num_layers,
+        hidden_size=args.hidden_size, num_layers=args.num_layers, batch_size=args.batch_size,
     )
     print(f"train_size={metrics['train_size']} val_size={metrics['val_size']} "
           f"val_accuracy={metrics['val_accuracy']:.3f}")

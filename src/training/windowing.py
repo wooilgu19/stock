@@ -22,12 +22,20 @@ def sliding_windows(values: list[float], window_size: int) -> list[list[float]]:
     return [values[i:i + window_size] for i in range(len(values) - window_size + 1)]
 
 
+def _zscore(values: list[float]) -> list[float]:
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    std = math.sqrt(variance)
+    if std == 0.0:
+        return [0.0 for _ in values]
+    return [(v - mean) / std for v in values]
+
+
 def normalize_window(price_window: list[float], volume_window: list[float]) -> list[list[float]]:
     base_price = price_window[0]
-    return [
-        [(price - base_price) / base_price, math.log1p(volume)]
-        for price, volume in zip(price_window, volume_window)
-    ]
+    price_returns = [(price - base_price) / base_price for price in price_window]
+    log_volumes = [math.log1p(volume) for volume in volume_window]
+    return [[p, v] for p, v in zip(_zscore(price_returns), _zscore(log_volumes))]
 
 
 def compute_future_returns(prices: list[float], window_size: int,

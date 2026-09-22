@@ -36,6 +36,9 @@ class Settings:
     kis_env: str = os.getenv("KIS_ENV", "").strip().lower()
     automation_mode: str = os.getenv("AUTOMATION_MODE", "auto").strip().lower()
     min_signal_strength: float = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
+    min_signal_strength_lstm: float = float(
+        os.getenv("MIN_SIGNAL_STRENGTH_LSTM", os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
+    )
     max_order_value: int = int(os.getenv("MAX_ORDER_VALUE", "1000000"))
     max_daily_loss: int = int(os.getenv("MAX_DAILY_LOSS", "100000"))
     kis_order_lookback_days: int = int(os.getenv("KIS_ORDER_LOOKBACK_DAYS", "1"))
@@ -57,6 +60,8 @@ class Settings:
             raise ValueError("paper_starting_cash cannot be negative")
         if not 0 <= self.min_signal_strength <= 1:
             raise ValueError("min_signal_strength must be between 0 and 1")
+        if not 0 <= self.min_signal_strength_lstm <= 1:
+            raise ValueError("min_signal_strength_lstm must be between 0 and 1")
         if self.max_order_value < 0:
             raise ValueError("max_order_value cannot be negative")
         if self.max_daily_loss < 0:

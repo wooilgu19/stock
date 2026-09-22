@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 import pytest
 
@@ -27,11 +25,18 @@ def test_sliding_windows_rejects_non_positive_window():
         sliding_windows([1, 2, 3], 0)
 
 
-def test_normalize_window_uses_first_price_as_base_and_log1p_volume():
+def test_normalize_window_zscores_price_returns_and_log_volume_per_channel():
     result = normalize_window([100.0, 101.0, 99.0], [10.0, 20.0, 0.0])
-    assert result[0] == [0.0, math.log1p(10.0)]
-    assert result[1] == pytest.approx([0.01, math.log1p(20.0)])
-    assert result[2] == pytest.approx([-0.01, math.log1p(0.0)])
+
+    prices, volumes = zip(*result)
+    assert prices == pytest.approx([0.0, 1.224745, -1.224745], abs=1e-5)
+    assert sum(prices) == pytest.approx(0.0, abs=1e-9)
+    assert sum(volumes) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_normalize_window_returns_zero_for_a_constant_channel():
+    result = normalize_window([100.0, 100.0, 100.0], [10.0, 10.0, 10.0])
+    assert result == [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
 
 
 def test_compute_future_returns_matches_price_change_at_lookahead():

@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
 
 from src.training.model import LSTMClassifier
 from src.training.split import chronological_split
@@ -38,7 +39,7 @@ def _load_ticks(path: Path) -> dict[str, tuple[list[float], list[float]]]:
 def run_training(ticks_paths: list[Path], window_size: int, lookahead: int, val_ratio: float,
                   epochs: int, lr: float, output_path: Path, hidden_size: int = 16,
                   num_layers: int = 1, dropout: float = 0.2, low_quantile: float = 0.3,
-                  high_quantile: float = 0.7, seed: int = 42) -> dict:
+                  high_quantile: float = 0.7, seed: int = 42, batch_size: int = 64) -> dict:
     torch.manual_seed(seed)
 
     splits = [
@@ -80,14 +81,17 @@ def run_training(ticks_paths: list[Path], window_size: int, lookahead: int, val_
 
     train_X_t = torch.tensor(train_X, dtype=torch.float32)
     train_y_t = torch.tensor(train_y, dtype=torch.int64)
+    train_loader = DataLoader(TensorDataset(train_X_t, train_y_t), batch_size=batch_size,
+                               shuffle=True, generator=torch.Generator().manual_seed(seed))
 
     model.train()
     for _ in range(epochs):
-        optimizer.zero_grad()
-        logits = model(train_X_t)
-        loss = loss_fn(logits, train_y_t)
-        loss.backward()
-        optimizer.step()
+        for batch_X, batch_y in train_loader:
+            optimizer.zero_grad()
+            logits = model(batch_X)
+            loss = loss_fn(logits, batch_y)
+            loss.backward()
+            optimizer.step()
 
     model.eval()
     with torch.no_grad():

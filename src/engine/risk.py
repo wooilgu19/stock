@@ -12,19 +12,25 @@ class RiskDecision:
 
 
 class RiskGate:
-    def __init__(self, min_signal_strength: float, max_order_value: int, max_daily_loss: int) -> None:
+    def __init__(self, min_signal_strength: float, max_order_value: int, max_daily_loss: int,
+                 min_signal_strength_by_strategy: dict[str, float] | None = None) -> None:
         if not 0 <= min_signal_strength <= 1:
             raise ValueError("min_signal_strength must be between 0 and 1")
         if max_order_value < 0:
             raise ValueError("max_order_value cannot be negative")
         if max_daily_loss < 0:
             raise ValueError("max_daily_loss cannot be negative")
+        for strategy_id, threshold in (min_signal_strength_by_strategy or {}).items():
+            if not 0 <= threshold <= 1:
+                raise ValueError(f"min_signal_strength for {strategy_id!r} must be between 0 and 1")
         self.min_signal_strength = min_signal_strength
         self.max_order_value = max_order_value
         self.max_daily_loss = max_daily_loss
+        self.min_signal_strength_by_strategy = min_signal_strength_by_strategy or {}
 
     def check(self, order: OrderRequest, daily_loss: float = 0) -> RiskDecision:
-        if order.signal_strength < self.min_signal_strength:
+        threshold = self.min_signal_strength_by_strategy.get(order.strategy_id, self.min_signal_strength)
+        if order.signal_strength < threshold:
             return RiskDecision(False, "signal strength is below the minimum")
         if order.value > self.max_order_value:
             return RiskDecision(False, "order value exceeds the limit")
