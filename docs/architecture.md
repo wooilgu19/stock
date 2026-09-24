@@ -21,9 +21,46 @@ This system is designed to handle high-frequency tick data processing and comput
 [ Broker API (KIS API) ]
 ```
 
+### 2.1 Daily Symbol Selection (pre-market)
+```text
+[ Task Scheduler 08:55 ] -> scripts/record_market_open.ps1
+           |
+           v
+[ src/screener.py ] --GET volume-rank (FHPST01710000)--> [ KIS REST ]
+           |  filter: no ETF/ETN/preferred/managed, price >= 1000,
+           |          1% <= |change| <= 15%, top 5 by trading value
+           v
+  symbols = 005930 (fixed) + picks   (fallback: 005930 only on any failure)
+           |  sleep 65s  (KIS token: 1 issue / minute / app key)
+           v
+[ src.main <symbols> --record ticks_YYYYMMDD.jsonl ]  -> pipeline above
+```
+The screener and the collector are separate processes and each issues its
+own KIS access token, so they are spaced apart to stay under the token rate
+limit (`EGW00133`). Symbol selection is decoupled from the strategy: the
+strategy sees whatever symbols the collector was started with.
+
+### 2.2 Offline Training Path
+```text
+data/ticks/ticks_YYYYMMDD.jsonl  (one file = one recording day)
+           |  per-symbol series (never interleaved)
+           v
+[ src/training/train.py ]
+   - day-level holdout: newest day(s) validate, older days train
+     (single file falls back to a within-day chronological split)
+   - label thresholds = train-side return quantiles (30% / 70%);
+     strict comparison, so zero return is HOLD
+   - reports val_accuracy with val label counts and the majority-class
+     baseline (a model only counts if it clearly beats the baseline)
+           v
+models/*.pt (gitignored)  ->  src/strategies/lstm_strategy.py (same
+                              normalize_window as training, no drift)
+```
+
 ## 3. Pipeline Segregation
 - **I/O Bound Pipeline**: Handles WebSocket connections, REST API calls, and basic data validation.
 - **Compute Bound Pipeline**: Dedicated worker processes that consume tick data from the queue, perform feature engineering, and run model inference.
+- **Data environment note**: `KIS_BASE_URL` points at the real KIS server (market data and ranking queries); orders are recorded locally as `simulated` and never sent to KIS while `PAPER_TRADING=true`. Whether ranking APIs work on the KIS paper server (`openapivts`) is unverified.
 
 ## 4. Technology Stack
 - **Language**: Python 3.x

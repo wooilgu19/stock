@@ -104,6 +104,15 @@ class KISRestClient:
         )
         return self._token.value
 
+    def get(self, path: str, tr_id: str, params: dict[str, str]) -> dict[str, Any]:
+        return self._request(
+            "GET", path,
+            headers={"authorization": f"Bearer {self.access_token()}",
+                     "appkey": self.app_key, "appsecret": self.app_secret,
+                     "tr_id": tr_id, "custtype": "P"},
+            params=params,
+        )
+
     def current_price(self, symbol: str, account_type: str = "01") -> float:
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("domestic stock symbol must be a 6-digit code")
