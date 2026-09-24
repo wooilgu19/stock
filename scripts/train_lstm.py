@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ticks-glob", default="data/ticks/ticks_[0-9]*.jsonl",
                         help="glob for recorded tick files (default excludes ticks_test_*)")
     parser.add_argument("--window-size", type=int, default=20)
-    parser.add_argument("--lookahead", type=int, default=5)
+    parser.add_argument("--lookahead", type=int, default=300)
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -47,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"train_size={metrics['train_size']} val_size={metrics['val_size']} "
           f"val_accuracy={metrics['val_accuracy']:.3f}")
+    print(f"val_label_counts(sell,hold,buy)={metrics['val_label_counts']} "
+          f"majority_baseline={metrics['majority_baseline']:.3f}")
     print(f"saved {args.output}")
     return 0
 

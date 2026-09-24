@@ -67,9 +67,9 @@ def build_dataset(prices: list[float], volumes: list[float], window_size: int, l
     for price_window, volume_window, future_return in zip(price_windows, volume_windows, returns):
         if future_return is None:
             continue
-        if future_return >= high_threshold:
+        if future_return > high_threshold:
             label = LABEL_BUY
-        elif future_return <= low_threshold:
+        elif future_return < low_threshold:
             label = LABEL_SELL
         else:
             label = LABEL_HOLD

@@ -1,9 +1,12 @@
 """Offline training entrypoint: recorded tick files -> models/lstm_v1.pt.
 
-Each file in ticks_paths is treated as one continuous chronological
-session and split independently (see chronological_split's docstring for
-why) -- files are never concatenated before splitting, so a training
-window can never span the boundary between two recording days.
+Each file is one recording day. With more than one day available, whole
+days are held out for validation (day-level holdout) instead of splitting
+within a day: splitting within a day lets validation windows sit right
+after training windows from the same trend/regime, so the model can score
+well by extrapolating that day's own trend rather than generalizing across
+days. With only one day available there is no other day to hold out, so
+that single file falls back to chronological_split's within-day split.
 """
 
 import json
@@ -42,30 +45,42 @@ def run_training(ticks_paths: list[Path], window_size: int, lookahead: int, val_
                   high_quantile: float = 0.7, seed: int = 42, batch_size: int = 64) -> dict:
     torch.manual_seed(seed)
 
-    splits = [
-        chronological_split(prices, volumes, val_ratio=val_ratio, lookahead=lookahead)
-        for path in ticks_paths
-        for prices, volumes in _load_ticks(Path(path)).values()
-    ]
+    sorted_paths = sorted(Path(p) for p in ticks_paths)
+
+    if len(sorted_paths) > 1:
+        num_val_files = min(len(sorted_paths) - 1, max(1, round(len(sorted_paths) * val_ratio)))
+        train_paths, val_paths = sorted_paths[:-num_val_files], sorted_paths[-num_val_files:]
+        train_series = [series for p in train_paths for series in _load_ticks(p).values()]
+        val_series = [series for p in val_paths for series in _load_ticks(p).values()]
+    else:
+        train_series, val_series = [], []
+        for prices, volumes in _load_ticks(sorted_paths[0]).values():
+            (train_p, train_v), (val_p, val_v) = chronological_split(
+                prices, volumes, val_ratio=val_ratio, lookahead=lookahead)
+            train_series.append((train_p, train_v))
+            val_series.append((val_p, val_v))
 
     # Thresholds are computed from train-side returns only, across every
     # file, so validation never influences where the label boundaries fall.
     all_train_returns: list[float] = []
-    for (train_prices, _), _ in splits:
+    for train_prices, _ in train_series:
         all_train_returns.extend(
             r for r in compute_future_returns(train_prices, window_size, lookahead) if r is not None
         )
     low_threshold = float(np.quantile(all_train_returns, low_quantile))
     high_threshold = float(np.quantile(all_train_returns, high_quantile))
 
-    train_X_parts, train_y_parts, val_X_parts, val_y_parts = [], [], [], []
-    for (train_prices, train_volumes), (val_prices, val_volumes) in splits:
+    train_X_parts, train_y_parts = [], []
+    for train_prices, train_volumes in train_series:
         tx, ty = build_dataset(train_prices, train_volumes, window_size, lookahead,
-                                low_threshold, high_threshold)
-        vx, vy = build_dataset(val_prices, val_volumes, window_size, lookahead,
                                 low_threshold, high_threshold)
         train_X_parts.append(tx)
         train_y_parts.append(ty)
+
+    val_X_parts, val_y_parts = [], []
+    for val_prices, val_volumes in val_series:
+        vx, vy = build_dataset(val_prices, val_volumes, window_size, lookahead,
+                                low_threshold, high_threshold)
         val_X_parts.append(vx)
         val_y_parts.append(vy)
 
@@ -111,4 +126,7 @@ def run_training(ticks_paths: list[Path], window_size: int, lookahead: int, val_
         "num_layers": num_layers,
     }, output_path)
 
-    return {"train_size": len(train_y), "val_size": len(val_y), "val_accuracy": val_accuracy}
+    val_counts = np.bincount(val_y, minlength=3) if len(val_y) else np.zeros(3, dtype=int)
+    majority_baseline = float(val_counts.max() / len(val_y)) if len(val_y) else 0.0
+    return {"train_size": len(train_y), "val_size": len(val_y), "val_accuracy": val_accuracy,
+            "val_label_counts": val_counts.tolist(), "majority_baseline": majority_baseline}
