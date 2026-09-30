@@ -17,8 +17,14 @@ $logFile = "logs\record_$date.log"
 
 # Daily symbols = 005930 (kept for data continuity) + the screener's picks.
 # Any screener failure falls back to 005930 alone so recording never skips a day.
-$picked = ""
-try { $picked = (& ".\.venv\Scripts\python.exe" -m src.screener 2>$null | Out-String).Trim() } catch {}
+# Routed through cmd.exe for the same reason as the collector below (PowerShell
+# mangles a native process's stderr); screener's diagnostic prints (candidate
+# count, which filter tier fired) land in $logFile instead of being discarded,
+# so a future empty/fallback pick is explainable from the log alone.
+$pickedFile = "data\ticks\.screener_picks_$date.tmp"
+cmd.exe /c ('".\.venv\Scripts\python.exe" -m src.screener 1> "' + $pickedFile + '" 2>> "' + $logFile + '"')
+$picked = if (Test-Path $pickedFile) { (Get-Content $pickedFile -Raw -Encoding utf8).Trim() } else { "" }
+Remove-Item $pickedFile -ErrorAction SilentlyContinue
 if ($picked -notmatch '^\d{6}( \d{6})*$') { $picked = "" }
 $symbols = (@("005930") + ($picked -split ' ') | Where-Object { $_ } | Select-Object -Unique) -join ' '
 "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') screener symbols=$symbols" | Out-File -Append -Encoding utf8 $logFile

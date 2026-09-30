@@ -58,11 +58,25 @@ def select_symbols(candidates: list[Candidate], top_n: int = 5, min_price: float
     return sorted(picked, key=lambda c: c.trading_value, reverse=True)[:top_n]
 
 
+def select_daily_symbols(candidates: list[Candidate], top_n: int = 5) -> tuple[list[Candidate], str]:
+    """Try the strict "clearly moving" filter first. Run shortly before the
+    open, pre-market change percent is ~0% for nearly every stock, so the
+    strict filter can come back empty; fall back to a liquidity-only filter
+    (still excluding penny stocks and near-limit names) instead of leaving
+    the day with only the caller's fallback symbol."""
+    picks = select_symbols(candidates, top_n=top_n)
+    if picks:
+        return picks, "strict"
+    return select_symbols(candidates, top_n=top_n, min_change_pct=0.0), "relaxed(min_change_pct=0)"
+
+
 def main() -> int:
     from src.config import Settings
     settings = Settings()
     client = KISRestClient(settings.kis_base_url, settings.kis_appkey, settings.kis_appsecret)
-    picks = select_symbols(fetch_candidates(client))
+    candidates = fetch_candidates(client)
+    picks, tier = select_daily_symbols(candidates)
+    print(f"fetched {len(candidates)} candidates, picked {len(picks)} via {tier} filter", file=sys.stderr)
     for c in picks:
         print(f"{c.symbol} {c.name} price={c.price:.0f} change={c.change_pct:+.2f}% "
               f"value={c.trading_value / 1e8:.0f}억", file=sys.stderr)

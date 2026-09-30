@@ -1,4 +1,4 @@
-from src.screener import Candidate, fetch_candidates, select_symbols
+from src.screener import Candidate, fetch_candidates, select_daily_symbols, select_symbols
 from tests.test_kis_rest import FakeResponse, FakeSession
 from src.api.kis_rest import KISRestClient
 
@@ -37,3 +37,26 @@ def test_select_symbols_filters_and_ranks_by_trading_value():
 
     assert [c.symbol for c in select_symbols(candidates, top_n=2)] == ["B", "F"]
     assert [c.symbol for c in select_symbols(candidates)] == ["B", "F", "A"]
+
+
+def test_select_daily_symbols_falls_back_to_relaxed_filter_when_nothing_is_moving_yet():
+    # Pre-market: every change_pct is ~0, so the strict (>=1%) filter picks nothing.
+    candidates = [
+        Candidate("A", "A", 50000, 0.0, 300),
+        Candidate("B", "B", 50000, 0.0, 900),
+        Candidate("C", "C", 500, 0.0, 900),  # still excluded: penny stock
+    ]
+
+    picks, tier = select_daily_symbols(candidates)
+
+    assert tier == "relaxed(min_change_pct=0)"
+    assert [c.symbol for c in picks] == ["B", "A"]
+
+
+def test_select_daily_symbols_uses_strict_tier_when_it_finds_anything():
+    candidates = [Candidate("A", "A", 50000, 5.0, 300)]
+
+    picks, tier = select_daily_symbols(candidates)
+
+    assert tier == "strict"
+    assert [c.symbol for c in picks] == ["A"]
