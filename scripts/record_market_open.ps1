@@ -15,6 +15,17 @@ $date = Get-Date -Format "yyyyMMdd"
 $tickFile = "data\ticks\ticks_$date.jsonl"
 $logFile = "logs\record_$date.log"
 
+# Wait for the open before asking the ranking API. At 08:55 (this script's
+# trigger time) almost every stock's day-over-day change is still ~0%, so
+# the screener's ranking is close to meaningless pre-market (confirmed
+# 2026-09-30: picks had near-zero trading value). 09:05 gives the market
+# 5 minutes to generate a real ranking. This delays the collector start by
+# the same amount (was ~08:56, now ~09:06+) -- a deliberate trade of a few
+# minutes of 005930 data for a meaningful symbol list.
+$targetTime = Get-Date -Hour 9 -Minute 5 -Second 0
+$waitSeconds = [int]($targetTime - (Get-Date)).TotalSeconds
+if ($waitSeconds -gt 0) { Start-Sleep -Seconds $waitSeconds }
+
 # Daily symbols = 005930 (kept for data continuity) + the screener's picks.
 # Any screener failure falls back to 005930 alone so recording never skips a day.
 # Routed through cmd.exe for the same reason as the collector below (PowerShell
