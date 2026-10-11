@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stock 구조</title>
+<style>
+  :root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--bd:#e5e7eb;--card:#f9fafb}
+  @media (prefers-color-scheme:dark){:root{--bg:#111318;--fg:#e5e7eb;--mut:#9ca3af;--bd:#2a2f3a;--card:#171a21}}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,"Malgun Gothic",sans-serif}
+  .nav{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid var(--bd)}
+  .nav a{padding:4px 12px;border-radius:4px;text-decoration:none;color:inherit}
+  .nav a.on{background:#2563eb;color:#fff}
+  main{max-width:960px;margin:0 auto;padding:16px}
+  h1{font-size:18px}h2{font-size:15px;margin-top:28px}
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
+  .box{flex:1 1 130px;border:1px solid var(--bd);background:var(--card);border-radius:6px;padding:8px}
+  .box b{display:block}.box small{color:var(--mut)}
+  .arr{align-self:center;color:var(--mut)}
+  table{width:100%;border-collapse:collapse}
+  td,th{border-bottom:1px solid var(--bd);padding:6px 8px;text-align:left;vertical-align:top}
+  code{font:12px Consolas,monospace}
+  .side{margin-top:10px;color:var(--mut)}
+</style></head>
+<body>
+<nav class="nav"><a href="structure.html" class="on">구조</a><a href="config.html">설정 편집</a><a href="log_viewer.html">로그 뷰어</a></nav>
+<main>
+<h1>프로그램 구조</h1>
+<p>KIS 실시간 체결을 받아 큐에 쌓고, 전략이 신호를 만들면 리스크 검사를 거쳐 주문(기본 모의투자)하는 비동기 시스템입니다.</p>
+
+<h2>데이터 흐름</h2>
+<div class="flow">
+  <div class="box"><b>KIS WebSocket</b><small>H0STCNT0 체결 수신<br>api/kis_websocket.py</small></div><div class="arr">→</div>
+  <div class="box"><b>틱 큐</b><small>Redis Streams<br>(+ JSONL 기록)</small></div><div class="arr">→</div>
+  <div class="box"><b>추론 워커</b><small>LSTM / 이동평균<br>inference, strategies</small></div><div class="arr">→</div>
+  <div class="box"><b>신호 라우터</b><small>신호 → 주문 요청<br>engine/signal_router</small></div><div class="arr">→</div>
+  <div class="box"><b>리스크 게이트</b><small>신호강도·주문금액<br>일손실 한도</small></div><div class="arr">→</div>
+  <div class="box"><b>주문 관리</b><small>모의/실주문<br>order_manager</small></div><div class="arr">→</div>
+  <div class="box"><b>SQLite</b><small>거래 로그<br>data/trading.sqlite3</small></div>
+</div>
+<div class="side">옆가지: 종목 선정 <code>screener.py</code> → 수집 대상 / 거래 대사 <code>reconciliation.py</code> / 헬스체크·텔레그램 알림 <code>monitoring/</code>, <code>api/health.py</code></div>
+
+<h2>운영 흐름 (평일)</h2>
+<div class="flow">
+  <div class="box"><b>08:55</b><small>작업 스케줄러가 record_market_open.ps1 실행</small></div><div class="arr">→</div>
+  <div class="box"><b>09:05</b><small>screener로 상위 종목 선정 (+005930)</small></div><div class="arr">→</div>
+  <div class="box"><b>~09:06</b><small><code>src.main</code> 수집 시작, 틱을 ticks_YYYYMMDD.jsonl에 기록</small></div><div class="arr">→</div>
+  <div class="box"><b>장 마감 후</b><small>세션 종료로 자동 종료, stop_record.ps1이 안전망</small></div>
+</div>
+
+<h2>모듈</h2>
+<table>
+<tr><th>경로</th><th>역할</th></tr>
+<tr><td><code>src/main.py</code></td><td>운영 진입점: 수집기와 매매 루프를 함께 실행</td></tr>
+<tr><td><code>src/application.py</code></td><td>의존성 조립(주문관리자, 라우터, 파이프라인, 헬스앱)</td></tr>
+<tr><td><code>src/runtime.py</code></td><td>조립된 파이프라인의 실행 루프</td></tr>
+<tr><td><code>src/config.py</code></td><td><code>.env</code> 기반 설정과 검증</td></tr>
+<tr><td><code>src/api/kis_websocket.py</code></td><td>실시간 체결 수신·파싱·재연결</td></tr>
+<tr><td><code>src/api/kis_rest.py</code></td><td>KIS REST: 토큰, 주문 실행, 주문 상태 조회</td></tr>
+<tr><td><code>src/api/health.py</code>, <code>monitoring/</code></td><td>준비 상태 엔드포인트, 지표, 텔레그램 알림</td></tr>
+<tr><td><code>src/queue/</code></td><td>Redis 스트림 큐, JSONL 기록 큐</td></tr>
+<tr><td><code>src/inference/worker.py</code></td><td>큐의 틱을 소비해 신호 생성</td></tr>
+<tr><td><code>src/strategies/</code></td><td>LSTM 전략, 이동평균 전략</td></tr>
+<tr><td><code>src/engine/</code></td><td>리스크, 주문 관리, 포트폴리오, 신호 라우팅, 대사, 장시간·휴장</td></tr>
+<tr><td><code>src/database/sqlite.py</code></td><td>거래 로그 저장</td></tr>
+<tr><td><code>src/screener.py</code></td><td>거래대금 순위 기반 일일 종목 선정</td></tr>
+<tr><td><code>src/training/</code>, <code>scripts/train_lstm.py</code></td><td>LSTM 학습(오프라인), 모델은 <code>models/</code></td></tr>
+<tr><td><code>src/replay.py</code></td><td>기록된 틱 JSONL을 큐로 재생</td></tr>
+<tr><td><code>scripts/*.ps1</code></td><td>스케줄러용 수집 시작/중지 스크립트</td></tr>
+</table>
+
+<h2>데이터·산출물 위치</h2>
+<table>
+<tr><td><code>data/ticks/ticks_YYYYMMDD.jsonl</code></td><td>일별 틱 기록 (학습 입력)</td></tr>
+<tr><td><code>data/trading.sqlite3</code></td><td>거래 로그</td></tr>
+<tr><td><code>logs/record_YYYYMMDD.log</code></td><td>수집 로그 → <a href="log_viewer.html">로그 뷰어</a></td></tr>
+<tr><td><code>models/*.pt</code></td><td>학습된 LSTM 모델 (<code>MODEL_PATH</code>가 가리킴)</td></tr>
+<tr><td><code>.env</code></td><td>설정 → <a href="config.html">설정 편집</a></td></tr>
+</table>
+</main></body></html>

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stock 설정 편집</title>
+<style>
+  :root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--bd:#e5e7eb;--err:#dc2626;--ok:#16a34a}
+  @media (prefers-color-scheme:dark){:root{--bg:#111318;--fg:#e5e7eb;--mut:#9ca3af;--bd:#2a2f3a;--err:#f87171;--ok:#4ade80}}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,"Malgun Gothic",sans-serif}
+  .nav{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid var(--bd)}
+  .nav a{padding:4px 12px;border-radius:4px;text-decoration:none;color:inherit}
+  .nav a.on{background:#2563eb;color:#fff}
+  main{max-width:820px;margin:0 auto;padding:16px}
+  h1{font-size:18px}h2{font-size:15px;margin:24px 0 4px}
+  .row{display:grid;grid-template-columns:230px 1fr;gap:4px 12px;padding:6px 0;border-bottom:1px solid var(--bd)}
+  .row label{font:12px Consolas,monospace;padding-top:6px}
+  .row input,.row select{padding:5px 8px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:4px;width:100%;box-sizing:border-box}
+  .hint{grid-column:2;color:var(--mut);font-size:12px}
+  .bad{grid-column:2;color:var(--err);font-size:12px}
+  .warn{background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:4px;margin:12px 0}
+  button{padding:6px 14px;border:1px solid var(--bd);border-radius:4px;background:var(--bg);color:var(--fg);cursor:pointer}
+  button.p{background:#2563eb;color:#fff;border-color:#2563eb}
+  button:disabled{opacity:.5;cursor:default}
+  #msg{margin-left:10px}
+  @media(max-width:600px){.row{grid-template-columns:1fr}.hint,.bad{grid-column:1}}
+</style></head>
+<body>
+<nav class="nav"><a href="structure.html">구조</a><a href="config.html" class="on">설정 편집</a><a href="log_viewer.html">로그 뷰어</a></nav>
+<main>
+<h1>설정 편집 (.env)</h1>
+<p>프로젝트 루트의 <code>.env</code>를 열어 수정하고 저장합니다. 파일은 이 브라우저 안에서만 처리되며 주석과 모르는 항목은 그대로 보존합니다.
+저장 후 <b>실행 중인 프로세스는 재시작해야</b> 반영됩니다. 직접 저장은 Chrome/Edge에서만 되고, 그 외에는 다운로드를 쓰세요.</p>
+<div><button class="p" id="open">.env 열기</button> <button id="save" disabled>저장</button> <button id="dl" disabled>다운로드</button><span id="msg"></span></div>
+<div id="liveWarn" class="warn" hidden>KIS_ENV=live — 실계좌 주문이 나갈 수 있습니다.</div>
+<div id="form"></div>
+</main>
+<script>
+// Mirrors src/config.py: [key, type, description, default, validator]
+const SCHEMA=[
+ ["KIS API",[
+  ["KIS_CANO","text","계좌번호 앞 8자리","",v=>/^\d{8}$/.test(v)||"8자리 숫자"],
+  ["KIS_ACNT_PRDT_CD","text","계좌상품코드 2자리 (보통 01)","01",v=>/^\d{2}$/.test(v)||"2자리 숫자"],
+  ["KIS_APPKEY","secret","앱 키","",null],
+  ["KIS_APPSECRET","secret","앱 시크릿","",null],
+  ["KIS_BASE_URL","text","REST 기본 주소 (live는 https 필수)","https://openapi.koreainvestment.com:9443",v=>/^https:\/\/.+/.test(v)||"https:// 로 시작"]]],
+ ["인프라",[
+  ["REDIS_HOST","text","","localhost",null],
+  ["REDIS_PORT","int","","6379",v=>(+v>0&&+v<65536)||"1~65535"],
+  ["DATABASE_PATH","text","SQLite 경로","./data/trading.sqlite3",null],
+  ["MODEL_PATH","text","LSTM 모델 파일","./models/latest_model.pt",null]]],
+ ["거래 모드·안전장치",[
+  ["PAPER_TRADING","bool","모의투자 (KIS_ENV가 있으면 그 값이 우선)","true",null],
+  ["KIS_ENV","enum:,paper,live","paper / live (비우면 PAPER_TRADING 따름)","",null],
+  ["AUTOMATION_MODE","enum:auto,manual","auto = 신호 → 주문 자동 처리","auto",null],
+  ["MIN_SIGNAL_STRENGTH","float","최소 신호 강도 (0~1)","0.60",v=>(v!==""&&+v>=0&&+v<=1)||"0~1"],
+  ["MIN_SIGNAL_STRENGTH_LSTM","float","LSTM 전용 (softmax 최소 0.333)","0.60",v=>(v!==""&&+v>=0&&+v<=1)||"0~1"],
+  ["MAX_ORDER_VALUE","int","1회 주문 최대 금액(원)","1000000",v=>(/^\d+$/.test(v))||"0 이상 정수"],
+  ["MAX_DAILY_LOSS","int","일 손실 한도(원)","100000",v=>(/^\d+$/.test(v))||"0 이상 정수"],
+  ["KIS_ORDER_LOOKBACK_DAYS","int","대사 조회 기간(일)","1",v=>(/^\d+$/.test(v)&&+v>0)||"1 이상 정수"],
+  ["PAPER_STARTING_CASH","float","모의 시작 현금(원)","10000000",v=>(v!==""&&+v>=0)||"0 이상"],
+  ["MARKET_HOLIDAYS","text","휴장일, 쉼표 구분 ISO 날짜","",v=>v===""||v.split(",").every(d=>/^\d{4}-\d\d-\d\d$/.test(d.trim()))||"YYYY-MM-DD,YYYY-MM-DD"]]],
+ ["텔레그램",[
+  ["TELEGRAM_TOKEN","secret","봇 토큰 (CHAT_ID와 함께 설정)","",null],
+  ["TELEGRAM_CHAT_ID","text","","",null]]]
+];
+const $=id=>document.getElementById(id);
+let handle=null, lines=[], vals={};
+
+function build(){
+  const f=$('form'); f.innerHTML='';
+  for(const [title,items] of SCHEMA){
+    const h=document.createElement('h2'); h.textContent=title; f.append(h);
+    for(const [k,t,desc,def,chk] of items){
+      const row=document.createElement('div'); row.className='row';
+      const val=k in vals?vals[k]:def;
+      let inp;
+      if(t.startsWith('enum')||t==='bool'){
+        inp=document.createElement('select');
+        for(const o of (t==='bool'?['true','false']:t.slice(5).split(','))) inp.add(new Option(o||'(비움)',o));
+        inp.value=val.toLowerCase();
+      } else {inp=document.createElement('input'); inp.value=val; if(t==='secret') inp.type='password';}
+      inp.id='f_'+k;
+      const bad=document.createElement('div'); bad.className='bad';
+      const check=()=>{const r=chk?chk(inp.value):true; bad.textContent=r===true?'':r;};
+      inp.oninput=inp.onchange=()=>{vals[k]=inp.value; check(); liveCheck();};
+      row.innerHTML=`<label for="f_${k}">${k}</label>`; row.append(inp);
+      if(desc||def){const d=document.createElement('div'); d.className='hint';
+        d.textContent=desc+(def&&t!=='secret'?` · 기본 ${def}`:''); row.append(d);}
+      row.append(bad); f.append(row); check();
+    }
+  }
+  liveCheck();
+}
+function liveCheck(){ $('liveWarn').hidden=(vals.KIS_ENV||'').toLowerCase()!=='live'; }
+
+function parse(text){
+  lines=text.split(/\r?\n/); vals={};
+  for(const l of lines){const m=/^\s*([A-Z_][A-Z0-9_]*)\s*=(.*)$/.exec(l); if(m) vals[m[1]]=m[2].trim();}
+  build(); $('save').disabled=!handle; $('dl').disabled=false;
+}
+function serialize(){
+  const known=new Set(SCHEMA.flatMap(([,i])=>i.map(x=>x[0]))), seen=new Set();
+  const out=lines.map(l=>{
+    const m=/^(\s*)([A-Z_][A-Z0-9_]*)\s*=/.exec(l);
+    if(m&&known.has(m[2])){seen.add(m[2]); return `${m[1]}${m[2]}=${vals[m[2]]??''}`;}
+    return l;});
+  while(out.length&&out[out.length-1]==='') out.pop();
+  for(const k of known) if(!seen.has(k)&&vals[k]!==undefined&&vals[k]!=='') out.push(`${k}=${vals[k]}`);
+  return out.join('\n')+'\n';
+}
+const say=(t,bad)=>{$('msg').textContent=t;$('msg').style.color=bad?'var(--err)':'var(--ok)';};
+const invalid=()=>document.querySelector('.bad:not(:empty)');
+
+$('open').onclick=async()=>{
+  try{
+    if(!window.showOpenFilePicker) return say('이 브라우저는 파일 선택 쓰기를 지원하지 않습니다 (Chrome/Edge 사용).',1);
+    [handle]=await showOpenFilePicker();
+    parse(await (await handle.getFile()).text()); say('불러옴: '+handle.name);
+  }catch(e){ if(e.name!=='AbortError') say(String(e),1); }
+};
+$('save').onclick=async()=>{
+  if(invalid()) return say('검증 오류를 먼저 고치세요.',1);
+  try{const w=await handle.createWritable(); await w.write(serialize()); await w.close(); say('저장됨 — 프로세스 재시작 필요');}
+  catch(e){say(String(e),1);}
+};
+$('dl').onclick=()=>{
+  if(invalid()) return say('검증 오류를 먼저 고치세요.',1);
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([serialize()],{type:'text/plain'}));
+  a.download='.env'; a.click();
+};
+build();
+</script>
+</body></html>

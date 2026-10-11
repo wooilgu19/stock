@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stock 로그 뷰어</title>
+<style>
+  :root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--bd:#e5e7eb;--row:#f9fafb;--err:#dc2626;--warn:#b45309;--info:#2563eb}
+  @media (prefers-color-scheme:dark){:root{--bg:#111318;--fg:#e5e7eb;--mut:#9ca3af;--bd:#2a2f3a;--row:#171a21;--err:#f87171;--warn:#fbbf24;--info:#60a5fa}}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,"Malgun Gothic",sans-serif}
+  header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--bd);padding:10px 16px;z-index:1}
+  h1{font-size:16px;margin:0 0 8px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+  input[type=search]{flex:1;min-width:180px;padding:5px 8px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:4px}
+  select,button{padding:5px 8px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:4px}
+  label{white-space:nowrap}
+  #sum{padding:8px 16px;color:var(--mut)}
+  #sum b{color:var(--fg)}
+  #drop{margin:16px;padding:40px;border:2px dashed var(--bd);border-radius:8px;text-align:center;color:var(--mut)}
+  #drop.on{border-color:var(--info)}
+  #out{font:12px/1.5 Consolas,monospace;margin:0 16px 24px}
+  .r{display:flex;gap:10px;padding:1px 4px;border-bottom:1px solid var(--bd);white-space:pre-wrap;word-break:break-all}
+  .r:nth-child(even){background:var(--row)}
+  .t{color:var(--mut);flex:none}.l{flex:none;width:6ch;font-weight:600}
+  .ERROR .l,.CRITICAL .l{color:var(--err)}.WARNING .l{color:var(--warn)}.INFO .l{color:var(--info)}
+  .more{padding:8px;color:var(--mut)}
+  .nav{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid var(--bd)}
+  .nav a{padding:4px 12px;border-radius:4px;text-decoration:none;color:inherit}
+  .nav a.on{background:#2563eb;color:#fff}
+</style>
+</head>
+<body>
+<nav class="nav"><a href="structure.html">구조</a><a href="config.html">설정 편집</a><a href="log_viewer.html" class="on">로그 뷰어</a></nav>
+<header>
+  <h1>Stock 로그 뷰어 <small style="color:var(--mut);font-weight:400">logs/record_*.log</small></h1>
+  <div class="bar">
+    <input type="file" id="file" accept=".log,.txt">
+    <select id="enc"><option value="utf-8">UTF-8</option><option value="euc-kr">CP949</option></select>
+    <select id="tail">
+      <option value="4">끝 4MB</option><option value="16">끝 16MB</option>
+      <option value="64">끝 64MB</option><option value="0">전체</option>
+    </select>
+    <input type="search" id="q" placeholder="검색 (정규식 아님, 대소문자 무시)">
+    <label><input type="checkbox" class="lv" value="ERROR" checked> ERROR</label>
+    <label><input type="checkbox" class="lv" value="WARNING" checked> WARNING</label>
+    <label><input type="checkbox" class="lv" value="INFO" checked> INFO</label>
+    <label><input type="checkbox" id="nostatus"> status 주기 로그 숨김</label>
+    <label><input type="checkbox" id="newest" checked> 최신순</label>
+  </div>
+</header>
+<div id="sum"></div>
+<div id="drop">로그 파일을 여기에 끌어다 놓거나 위에서 선택하세요.<br>큰 파일은 끝부분만 읽습니다 (오래된 로그는 "전체" 선택).</div>
+<div id="out"></div>
+<script>
+const $=id=>document.getElementById(id), LIMIT=2000;
+const LINE=/^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ (\w+) ([^:]+): (.*)$/;
+let file=null, rows=[];
+
+async function load(f){
+  file=f; const mb=+$('tail').value, size=f.size;
+  const start=mb&&size>mb*1048576?size-mb*1048576:0;
+  const text=new TextDecoder($('enc').value).decode(await f.slice(start).arrayBuffer());
+  let lines=text.split(/\r?\n/); if(start) lines.shift(); // first line is cut mid-way
+  rows=[]; let prev=null;
+  for(const raw of lines){
+    if(!raw) continue;
+    const m=LINE.exec(raw);
+    if(m) rows.push(prev={t:m[1],lv:m[2],lg:m[3],msg:m[4]});
+    else if(prev&&!/^\d{4}-\d\d-\d\d /.test(raw)) prev.msg+="\n"+raw; // traceback / continuation
+    else rows.push(prev={t:"",lv:"INFO",lg:"",msg:raw});
+  }
+  $('drop').style.display='none';
+  $('sum').dataset.head=`${f.name} · ${(size/1048576).toFixed(1)}MB`+(start?` (끝 ${mb}MB만 로드)`:'');
+  render();
+}
+
+function render(){
+  const lv=new Set([...document.querySelectorAll('.lv:checked')].map(e=>e.value));
+  const q=$('q').value.toLowerCase(), hide=$('nostatus').checked;
+  const cnt={}; for(const r of rows) cnt[r.lv]=(cnt[r.lv]||0)+1;
+  let hit=rows.filter(r=>lv.has(r.lv)&&!(hide&&r.msg.startsWith('status cycles='))&&(!q||r.msg.toLowerCase().includes(q)||r.lg.toLowerCase().includes(q)));
+  if($('newest').checked) hit=hit.slice().reverse();
+  const shown=hit.slice(0,LIMIT), last=[...rows].reverse().find(r=>r.msg.startsWith('status cycles='));
+  $('sum').innerHTML=`${$('sum').dataset.head||''}<br>`+
+    `전체 <b>${rows.length}</b> · `+Object.entries(cnt).map(([k,v])=>`${k} <b>${v}</b>`).join(' · ')+
+    ` · 필터 결과 <b>${hit.length}</b>`+(last?`<br>마지막 status: ${last.t} ${esc(last.msg)}`:'');
+  $('out').innerHTML=shown.map(r=>`<div class="r ${r.lv}"><span class="t">${r.t.slice(5)}</span><span class="l">${r.lv}</span><span>${r.lg?`<span class="t">${esc(r.lg)}</span> `:''}${esc(r.msg.length>1500?r.msg.slice(0,1500)+'…':r.msg)}</span></div>`).join('')+
+    (hit.length>LIMIT?`<div class="more">… ${hit.length-LIMIT}건 더 있음. 검색/필터로 좁히세요.</div>`:'');
+}
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+$('file').onchange=e=>e.target.files[0]&&load(e.target.files[0]);
+for(const id of ['enc','tail']) $(id).onchange=()=>file&&load(file);
+$('q').oninput=render; $('nostatus').onchange=$('newest').onchange=render;
+document.querySelectorAll('.lv').forEach(e=>e.onchange=render);
+document.body.ondragover=e=>{e.preventDefault();$('drop').classList.add('on')};
+document.body.ondrop=e=>{e.preventDefault();$('drop').classList.remove('on');e.dataTransfer.files[0]&&load(e.dataTransfer.files[0])};
+</script>
+</body>
+</html>
