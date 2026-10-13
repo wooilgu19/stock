@@ -66,8 +66,12 @@ class OrderManager:
             return OrderResult(True, order.client_order_id, "duplicate order already recorded")
         # Paper/backtest orders intentionally use their event timestamp. Live
         # orders must always be checked against the wall clock.
+        # Paper mode with an executor (KIS 모의투자) hits a real server, so it
+        # is held to the wall clock like live; only the local simulation may
+        # use the event timestamp.
+        simulate = self.paper_trading and self.executor is None
         if self.market_hours and not self.market_hours.is_open(
-            order.timestamp if self.paper_trading else None
+            order.timestamp if simulate else None
         ):
             return OrderResult(False, reason="market is closed")
         decision = self.risk_gate.check(order, self.repository.daily_realized_loss())
@@ -81,7 +85,7 @@ class OrderManager:
         if not self.paper_trading and self.executor is None:
             return OrderResult(False, reason="live order executor is not configured")
 
-        if self.paper_trading:
+        if simulate:
             # Falling back to timestamp alone collides whenever two symbols
             # replay the same tick timestamp; the broker_order_id must stay
             # unique per order the way a real broker's order number would be.

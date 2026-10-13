@@ -34,6 +34,16 @@ class Settings:
     model_path: Path = Path(os.getenv("MODEL_PATH", "./models/latest_model.pt"))
     paper_trading: bool = _env_bool("PAPER_TRADING", True)
     kis_env: str = os.getenv("KIS_ENV", "").strip().lower()
+    # Send paper-mode orders to KIS's 모의투자 server (VTTC) instead of the local
+    # simulation. Uses its own credentials: KIS issues separate 모의투자
+    # appkey/secret/account, and market data keeps using the KIS_* ones above.
+    kis_paper_orders: bool = _env_bool("KIS_PAPER_ORDERS", False)
+    kis_paper_base_url: str = os.getenv(
+        "KIS_PAPER_BASE_URL", "https://openapivts.koreainvestment.com:29443")
+    kis_paper_cano: str = os.getenv("KIS_PAPER_CANO", "")
+    kis_paper_acnt_prdt_cd: str = os.getenv("KIS_PAPER_ACNT_PRDT_CD", "01")
+    kis_paper_appkey: str = os.getenv("KIS_PAPER_APPKEY", "")
+    kis_paper_appsecret: str = os.getenv("KIS_PAPER_APPSECRET", "")
     automation_mode: str = os.getenv("AUTOMATION_MODE", "auto").strip().lower()
     min_signal_strength: float = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.60"))
     min_signal_strength_lstm: float = float(
@@ -52,6 +62,8 @@ class Settings:
     def __post_init__(self) -> None:
         if self.kis_env and self.kis_env not in {"paper", "live"}:
             raise ValueError("KIS_ENV must be 'paper' or 'live'")
+        if self.kis_paper_orders and not self.is_paper:
+            raise ValueError("KIS_PAPER_ORDERS requires paper mode (PAPER_TRADING=true or KIS_ENV=paper)")
         if self.automation_mode not in {"auto", "manual"}:
             raise ValueError("automation_mode must be 'auto' or 'manual'")
         if self.kis_order_lookback_days <= 0:
@@ -80,6 +92,26 @@ class Settings:
     @property
     def telegram_enabled(self) -> bool:
         return bool(self.telegram_token.strip() and self.telegram_chat_id.strip())
+
+    def validate_for_broker_paper(self) -> None:
+        """Reject incomplete 모의투자 credentials before sending orders to KIS."""
+        required = {
+            "KIS_PAPER_CANO": self.kis_paper_cano,
+            "KIS_PAPER_APPKEY": self.kis_paper_appkey,
+            "KIS_PAPER_APPSECRET": self.kis_paper_appsecret,
+        }
+        missing = [name for name, value in required.items() if not value.strip()]
+        if missing:
+            raise ValueError(f"KIS paper credentials are missing: {', '.join(missing)}")
+        host = urlparse(self.kis_paper_base_url).hostname or ""
+        if urlparse(self.kis_paper_base_url).scheme != "https" or "openapivts" not in host:
+            # VTTC tr_ids against the real server (or real keys against VTS)
+            # would fail confusingly at best; refuse before any request.
+            raise ValueError("KIS_PAPER_BASE_URL must be the https openapivts (모의투자) server")
+        if not self.kis_paper_cano.isdigit() or len(self.kis_paper_cano) != 8:
+            raise ValueError("KIS_PAPER_CANO must be an 8-digit number")
+        if not self.kis_paper_acnt_prdt_cd.isdigit() or len(self.kis_paper_acnt_prdt_cd) != 2:
+            raise ValueError("KIS_PAPER_ACNT_PRDT_CD must be a 2-digit number")
 
     def validate_for_live(self) -> None:
         """Reject incomplete credentials before constructing a live pipeline."""

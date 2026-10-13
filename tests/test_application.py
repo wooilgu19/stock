@@ -83,3 +83,72 @@ def test_build_order_manager_enforces_market_hours_by_default(tmp_path):
     )
 
     assert manager.market_hours is not None
+
+
+def _paper_orders_settings(tmp_path, **overrides):
+    values = dict(
+        database_path=tmp_path / "trades.sqlite3", paper_starting_cash=500_000,
+        kis_paper_orders=True, kis_paper_cano="50123456",
+        kis_paper_appkey="pkey", kis_paper_appsecret="psecret",
+    )
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_paper_orders_inject_vts_executor_and_keep_portfolio(tmp_path):
+    manager = build_order_manager(_paper_orders_settings(tmp_path))
+
+    assert manager.executor is not None
+    assert manager.executor.paper_trading is True
+    assert manager.executor.account_number == "50123456"
+    assert manager.executor.client.base_url == "https://openapivts.koreainvestment.com:29443"
+    assert manager.executor.client.app_key == "pkey"
+    assert manager.portfolio is not None
+
+
+def test_paper_orders_require_credentials(tmp_path):
+    with pytest.raises(ValueError, match="KIS_PAPER_APPKEY"):
+        build_order_manager(_paper_orders_settings(tmp_path, kis_paper_appkey=""))
+
+
+def test_paper_orders_refuse_real_server_url(tmp_path):
+    settings = _paper_orders_settings(
+        tmp_path, kis_paper_base_url="https://openapi.koreainvestment.com:9443")
+
+    with pytest.raises(ValueError, match="openapivts"):
+        build_order_manager(settings)
+
+
+def test_paper_orders_flag_rejected_in_live_mode(tmp_path):
+    with pytest.raises(ValueError, match="requires paper mode"):
+        Settings(database_path=tmp_path / "t.sqlite3", paper_trading=False,
+                 kis_paper_orders=True)
+
+
+def test_paper_orders_are_sent_to_broker_with_vttc_tr_id(tmp_path):
+    from src.models import OrderRequest, Side
+
+    sent = []
+
+    class FakeExecutor:
+        def submit(self, order):
+            sent.append(order)
+            return "0000012345"
+
+    manager = build_order_manager(_paper_orders_settings(tmp_path))
+    manager.executor = FakeExecutor()
+    manager.market_hours = None
+
+    result = manager.submit(OrderRequest("005930", Side.BUY, 1, 70_000, "t", 0.8))
+
+    assert result.accepted and result.order_id == "0000012345"
+    assert len(sent) == 1
+
+
+def test_paper_orders_reconciler_uses_paper_provider(tmp_path):
+    from src.application import build_reconciler
+
+    reconciler = build_reconciler(_paper_orders_settings(tmp_path))
+
+    assert reconciler is not None
+    assert reconciler.fetch_updates.paper_trading is True

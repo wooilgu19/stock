@@ -27,6 +27,16 @@ from src.queue.redis_queue import RedisQueue
 from src.runtime import TradingRuntime
 
 
+def _paper_client(settings: Settings, session: Any = None) -> KISRestClient:
+    """REST client for the KIS 모의투자 server, with its own credentials."""
+    return KISRestClient(
+        settings.kis_paper_base_url,
+        settings.kis_paper_appkey,
+        settings.kis_paper_appsecret,
+        session=session,
+    )
+
+
 def build_order_manager(settings: Settings, session: Any = None,
                         enforce_market_hours: bool = True) -> OrderManager:
     """Build a paper-safe order manager from application settings.
@@ -41,7 +51,15 @@ def build_order_manager(settings: Settings, session: Any = None,
     """
     repository = TradeRepository(settings.database_path)
     executor = None
-    if not settings.is_paper:
+    if settings.is_paper and settings.kis_paper_orders:
+        settings.validate_for_broker_paper()
+        executor = KISOrderExecutor(
+            _paper_client(settings, session),
+            settings.kis_paper_cano,
+            settings.kis_paper_acnt_prdt_cd,
+            paper_trading=True,
+        )
+    elif not settings.is_paper:
         settings.validate_for_live()
         client = KISRestClient(
             settings.kis_base_url,
@@ -86,6 +104,16 @@ def build_health_app(settings: Settings, queue: Any = None,
 
 def build_reconciler(settings: Settings, session: Any = None) -> OrderReconciler | None:
     """Build the live KIS reconciliation adapter; keep paper mode local-only."""
+    if settings.is_paper and settings.kis_paper_orders:
+        settings.validate_for_broker_paper()
+        provider = KISOrderStatusProvider(
+            _paper_client(settings, session),
+            settings.kis_paper_cano,
+            settings.kis_paper_acnt_prdt_cd,
+            paper_trading=True,
+            lookback_days=settings.kis_order_lookback_days,
+        )
+        return OrderReconciler(TradeRepository(settings.database_path), provider)
     if settings.is_paper:
         return None
     settings.validate_for_live()

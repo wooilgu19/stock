@@ -168,6 +168,15 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("KIS_APPKEY and KIS_APPSECRET are required to start the tick collector")
         if not settings.is_paper:
             settings.validate_for_live()
+        elif settings.kis_paper_orders:
+            try:
+                settings.validate_for_broker_paper()
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+    elif settings.kis_paper_orders:
+        # Replay disables the market-hours check and would fire every recorded
+        # signal at the real 모의투자 server as a new order.
+        raise SystemExit("--replay cannot be combined with KIS_PAPER_ORDERS=true")
     elif not settings.is_paper:
         # Replaying skips the wall-clock market-hours check (see
         # build_order_manager's enforce_market_hours=False below), so
