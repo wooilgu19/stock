@@ -57,7 +57,9 @@ class KISWebSocketClient:
         self.app_key = app_key
         self.app_secret = app_secret
         self.base_url = base_url.rstrip("/")
-        self.ws_url = ws_url or (PAPER_WS_URL if paper_trading else REAL_WS_URL)
+        # Port follows the approval host: a real-server approval_key is rejected on the
+        # mock port (2026-10-16/19 handshake failures), whatever paper_trading says.
+        self.ws_url = ws_url or (PAPER_WS_URL if "openapivts" in self.base_url else REAL_WS_URL)
         self.timeout = timeout
         self.http_session = http_session or requests.Session()
         self.max_reconnects = max_reconnects
@@ -190,8 +192,10 @@ class KISWebSocketClient:
             # KISWebSocketError here can only come from approval_key() (parse
             # errors are handled per-frame above), e.g. a DNS outage like
             # 2026-09-18/21 -- retry it like a dropped connection.
-            except (websockets.exceptions.ConnectionClosed, OSError, KISWebSocketError,
-                    asyncio.TimeoutError, _StreamClosedNormally) as exc:
+            # InvalidHandshake: KIS sometimes answers the upgrade with a non-HTTP
+            # reply ("did not receive a valid HTTP response", 2026-10-16/19).
+            except (websockets.exceptions.ConnectionClosed, websockets.exceptions.InvalidHandshake,
+                    OSError, KISWebSocketError, asyncio.TimeoutError, _StreamClosedNormally) as exc:
                 if reconnects >= self.max_reconnects:
                     raise KISWebSocketError("WebSocket reconnect limit exceeded") from exc
                 logger.warning("collector reconnecting (%d/%d): %s",
