@@ -7,7 +7,7 @@ from src.database.sqlite import TradeRepository
 from src.engine.market_hours import MarketHours
 from src.engine.portfolio import PortfolioState
 from src.engine.risk import RiskGate
-from src.models import OrderRequest, TradeLog
+from src.models import OrderRequest, Side, TradeLog
 
 
 @dataclass(frozen=True)
@@ -74,7 +74,18 @@ class OrderManager:
             order.timestamp if simulate else None
         ):
             return OrderResult(False, reason="market is closed")
-        decision = self.risk_gate.check(order, self.repository.daily_realized_loss())
+        # Only the paper portfolio knows holdings; without it (live) every
+        # order is treated as new risk.
+        reduces_position = (
+            self.portfolio is not None
+            and order.side == Side.SELL
+            and order.quantity <= self.portfolio.positions.get(order.symbol, 0)
+        )
+        # Same clock as the market-hours check: a replayed day must be held
+        # to that day's losses, not to whatever "today" is on the wall clock.
+        loss_day = order.timestamp.date() if simulate else None
+        decision = self.risk_gate.check(order, self.repository.daily_realized_loss(loss_day),
+                                        reduces_position=reduces_position)
         if not decision.allowed:
             return OrderResult(False, reason=decision.reason)
         if self.portfolio:

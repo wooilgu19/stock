@@ -141,6 +141,7 @@ def build_signal_router(settings: Settings, order_manager: OrderManager,
         quantity=quantity,
         on_result=on_result,
         automation_enabled=settings.automation_enabled,
+        flatten_after=settings.eod_flatten_time,
     )
 
 

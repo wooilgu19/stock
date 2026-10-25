@@ -1,7 +1,7 @@
 """Environment-backed application settings."""
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 import os
 from urllib.parse import urlparse
@@ -19,6 +19,17 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_flatten_time(value: str) -> time | None:
+    """Parse EOD_FLATTEN_TIME ("HH:MM", KST); empty or "off" disables it."""
+    value = value.strip().lower()
+    if value in {"", "off", "none"}:
+        return None
+    try:
+        return time.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("EOD_FLATTEN_TIME must be HH:MM or 'off'") from exc
 
 
 @dataclass(frozen=True)
@@ -58,6 +69,9 @@ class Settings:
     market_holidays: frozenset[date] = parse_holiday_dates(
         os.getenv("MARKET_HOLIDAYS", "")
     )
+    # Paper holdings are sold from this KST time on so nothing is carried
+    # overnight (MarketHours closes at 20:00).
+    eod_flatten_time: time | None = parse_flatten_time(os.getenv("EOD_FLATTEN_TIME", "19:50"))
 
     def __post_init__(self) -> None:
         if self.kis_env and self.kis_env not in {"paper", "live"}:

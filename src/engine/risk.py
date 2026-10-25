@@ -28,12 +28,16 @@ class RiskGate:
         self.max_daily_loss = max_daily_loss
         self.min_signal_strength_by_strategy = min_signal_strength_by_strategy or {}
 
-    def check(self, order: OrderRequest, daily_loss: float = 0) -> RiskDecision:
+    def check(self, order: OrderRequest, daily_loss: float = 0,
+              reduces_position: bool = False) -> RiskDecision:
         threshold = self.min_signal_strength_by_strategy.get(order.strategy_id, self.min_signal_strength)
         if order.signal_strength < threshold:
             return RiskDecision(False, "signal strength is below the minimum")
         if order.value > self.max_order_value:
             return RiskDecision(False, "order value exceeds the limit")
-        if daily_loss >= self.max_daily_loss:
+        # The daily loss limit stops new risk, not exits: blocking a sell of
+        # shares already held would leave the position open for another day
+        # and re-trip the limit the next morning.
+        if daily_loss >= self.max_daily_loss and not reduces_position:
             return RiskDecision(False, "daily loss limit has been reached")
         return RiskDecision(True)
