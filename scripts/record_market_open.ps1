@@ -9,7 +9,9 @@
 # a file, which garbles python's logging output. cmd.exe's ">>"/"2>&1" do
 # plain byte redirection instead.
 
-Set-Location "D:\BACKUP\10_교육\works\Stock"
+# Repo root is this script's parent directory, so the checkout can move
+# between machines/paths without editing this file.
+Set-Location (Split-Path -Parent $PSScriptRoot)
 
 $date = Get-Date -Format "yyyyMMdd"
 $tickFile = "data\ticks\ticks_$date.jsonl"

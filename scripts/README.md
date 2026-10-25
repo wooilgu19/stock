@@ -8,10 +8,19 @@ Windows 작업 스케줄러 설정.
 - **StockRecordStart** — 평일(월~금) 08:55에 `record_market_open.ps1` 실행.
   종목 005930을 `data/ticks/ticks_YYYYMMDD.jsonl`에 녹화하고, 로그는
   `logs/record_YYYYMMDD.log`에 남긴다.
-- **StockRecordStop** — 평일 16:00에 `stop_record.ps1` 실행. 정상적으로는
+- **StockRecordStop** — 평일 20:05에 `stop_record.ps1` 실행. 정상적으로는
   KIS가 장 마감 후 세션을 끊으면 재연결 시도가 소진되며 프로세스가 스스로
   종료되지만(`src/api/kis_websocket.py`), 혹시 남아있을 경우를 대비한
   안전장치.
+
+## 새 PC에 설정하기
+
+관리자 PowerShell에서 한 번 실행한다(Redis 서비스 설치 + 두 작업을 S4U·
+`StartWhenAvailable`로 등록 + 대기 모드 끔). 다시 실행해도 안전하다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_machine.ps1
+```
 
 ## 전제 조건
 
