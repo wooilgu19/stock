@@ -20,6 +20,9 @@ class RuntimeCycle:
     signals: list[Signal]
     reconciliation: ReconciliationResult | None = None
     errors: tuple[str, ...] = ()
+    # True when the last read returned a full batch, i.e. more ticks are
+    # probably already waiting; run() then skips its poll sleep.
+    backlog: bool = False
 
 
 class TradingRuntime:
@@ -30,11 +33,14 @@ class TradingRuntime:
                  poll_interval: float = 1.0,
                  metrics: RuntimeMetrics | None = None,
                  on_error: Callable[[str], None] | None = None,
-                 reconcile_every: int = 1) -> None:
+                 reconcile_every: int = 1,
+                 max_drain_seconds: float = 1.0) -> None:
         if poll_interval < 0:
             raise ValueError("poll_interval cannot be negative")
         if reconcile_every <= 0:
             raise ValueError("reconcile_every must be positive")
+        if max_drain_seconds < 0:
+            raise ValueError("max_drain_seconds cannot be negative")
         self.worker = worker
         self.reconciler = reconciler
         self.poll_interval = poll_interval
@@ -47,15 +53,28 @@ class TradingRuntime:
         # without adding a second thread.
         self.reconcile_every = reconcile_every
         self._cycles_since_reconcile = 0
+        # Upper bound on how long one cycle keeps draining a tick backlog
+        # before yielding to reconciliation and the stop check.  Reading a
+        # fixed small batch per poll (10 ticks/s) used to fall 20-80 minutes
+        # behind the market on busy days (2026-10-29, 11-02).
+        self.max_drain_seconds = max_drain_seconds
 
     def run_once(self, count: int = 10) -> RuntimeCycle:
         if count <= 0:
             raise ValueError("count must be positive")
         errors: list[str] = []
+        signals: list[Signal] = []
+        backlog = False
+        started = monotonic()
         try:
-            signals = self.worker.process_once(count)
+            while True:
+                batch = self.worker.process_once(count)
+                signals.extend(batch)
+                backlog = len(batch) >= count
+                if not backlog or monotonic() - started >= self.max_drain_seconds:
+                    break
         except Exception as exc:
-            signals = []
+            backlog = False
             errors.append(self._format_error("worker", exc))
 
         reconciliation = None
@@ -66,9 +85,10 @@ class TradingRuntime:
                 reconciliation = self.reconciler.reconcile()
             except Exception as exc:
                 errors.append(self._format_error("reconciliation", exc))
-        cycle = RuntimeCycle(signals, reconciliation, tuple(errors))
+        cycle = RuntimeCycle(signals, reconciliation, tuple(errors), backlog)
         if self.metrics:
-            self.metrics.record(len(cycle.signals), cycle.errors, cycle.reconciliation)
+            self.metrics.record(len(cycle.signals), cycle.errors, cycle.reconciliation,
+                                last_tick_at=signals[-1].timestamp if signals else None)
         for error in cycle.errors:
             logger.error("trading runtime error: %s", error)
             if self.on_error:
@@ -93,8 +113,10 @@ class TradingRuntime:
         cycles = 0
         while not stop_event.is_set() and (max_cycles is None or cycles < max_cycles):
             started = monotonic()
-            self.run_once(count)
+            cycle = self.run_once(count)
             cycles += 1
+            if cycle.backlog:
+                continue
             remaining = self.poll_interval - (monotonic() - started)
             if remaining > 0:
                 stop_event.wait(remaining)

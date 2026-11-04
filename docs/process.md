@@ -259,7 +259,13 @@
    - 남은 한계: 그날 틱을 한 번도 못 본 종목(스크리너에서 빠진 날의 이월분 — 009830 9주 등)은 가격을 몰라 청산 안 됨. 다시 선정되는 날 청산되거나, DB 정리가 필요. 마지막 가격이 15:30 이후 갱신이 없는 종목은 그 가격으로 모의 체결된다(실주문이면 미체결 가능).
    - 미채택: (c) 손실 집계를 당일 순손익으로 바꾸는 것.
    - **모의 장부 초기화(10/25)**: 시세를 못 받아 청산 불가한 이월분(8종목)을 없애려고 `data/trading.sqlite3`를 `data/trading.sqlite3.bak-20261025`(2,588건)로 옮기고 빈 장부로 재시작(현금 1,000만, 보유 0). 10/26부터의 모의 매매 기록은 새 규칙(19:50 청산)만으로 쌓인다.
+   - **(10/27 정정)** 초기화 후 장부에 9/9~9/10 거래 42건이 다시 들어가 있었다(원인 미확인 — 초기화 뒤 9월 녹화를 `--replay`한 것으로 추정). 그 미청산 005930 10주가 10/26 09:08에 손실 약 53만 원으로 매도되어 10/26은 종일 일일 손실 한도로 매수 거부. `data/trading.sqlite3.bak-20261027`로 백업 후 10/27 이전 행 52건만 삭제(10/27 기록 308건은 보유 0에서 시작·종료한 정상 기록이라 유지). 복원 결과 현금 9,901,400, 보유 0. **장부를 건드리는 재생은 `DATABASE_PATH`를 스크래치 파일로 바꿔서 할 것.**
    - 함께 고친 것: 로컬 모의(simulate) 주문의 일일 손실 집계가 벽시계 날짜를 써서 **`--replay`로 과거 날짜를 재생하면 손실 한도가 사실상 꺼져 있었다**(10/23 재생 시 실현 손실 94만 원인데 한도 미발동). 장 시간 검사와 같은 기준으로 주문 시각의 날짜를 쓰도록 변경. 실시간 수집에선 두 날짜가 같아 동작 변화 없음.
+10. **(11/4) 매매 루프 지연 수정** — 루프가 1초에 틱 10개(`count=10`, `poll_interval=1.0`)만 읽어서 장중 내내 처리 상한(분당 600개)에 붙어 있었다. 주문 로그의 틱 시각과 로그 시각을 비교하면 10/29 약 27분, 11/2 최대 1시간 20분 늦게 매매했다(유입 최대 분당 약 8,000틱). Redis 스트림(`maxlen` 10만)이 넘치면 오래된 틱이 잘려 건너뛰었을 가능성도 있다. **10/26~11/4 모의 장부 손익은 지연된 가격 기준이라 성과 판단에 쓰지 말 것.**
+    - 수정: `TradingRuntime.run_once`가 한 사이클에서 최대 `max_drain_seconds`(1초)까지 배치를 반복해 밀린 틱을 소진하고, 아직 남아 있으면 `run`이 대기 없이 다음 사이클로 간다. 배치 크기는 `src.main --batch-size`(기본 200). 상태 로그에 `lag=`(지금 − 마지막 처리 틱 시각) 추가.
+    - 실측: 10/29 틱 20만 개를 실제 파이프라인(리스크 게이트·SQLite 기록 포함, 스크래치 DB)으로 처리하면 초당 약 1,430틱. 최대 유입(초당 약 133틱)의 10배 이상 여유.
+    - **확인할 것**: 다음 개장일 `logs/record_YYYYMMDD.log`의 `lag=`가 수 초 이내로 유지되는지.
+    - 오프라인 백테스트 도구 `scripts/backtest.py`(`src/backtest.py`) 추가 — 장부·Redis를 건드리지 않고 비용 반영. 같은 기간을 실전 설정으로 돌리면 −474,550원(장부 −447,250원).
 
 ## 리뷰에서 보류한 사소한 항목
 
@@ -272,9 +278,10 @@
 
 ```powershell
 cd "D:\2_교육\works\Stock"
-.\.venv\Scripts\python.exe -m pytest -q                       # 189개
+.\.venv\Scripts\python.exe -m pytest -q                       # 231개
 .\.venv\Scripts\python.exe scripts\train_lstm.py --batch-size 64   # data/ticks/ticks_[0-9]*.jsonl로 학습 (마지막 날 통째로 검증, lookahead 기본 300)
 .\.venv\Scripts\python.exe -m src.screener                         # 오늘의 선정 종목 출력 (토큰 발급 1분당 1회 주의)
+.\.venv\Scripts\python.exe scripts\backtest.py --symbols 005930 --short 200 --long 1000   # 오프라인 백테스트(장부·Redis 안 건드림, 비용 반영). 옵션은 --help
 .\.venv\Scripts\python.exe -m src.main 005930 --replay data\ticks\ticks_YYYYMMDD.jsonl --replay-speed 60 --status-interval 0
 .\.venv\Scripts\python.exe -m src.main 005930 --strategy lstm --replay data\ticks\ticks_YYYYMMDD.jsonl --replay-speed 60 --status-interval 0
 ```

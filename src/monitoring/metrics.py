@@ -1,6 +1,7 @@
 """In-memory counters for runtime observability."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 
@@ -12,19 +13,29 @@ class RuntimeMetrics:
     reconciliation_updates: int = 0
     reconciliation_ignored: int = 0
     last_error: str | None = None
+    # Market timestamp of the newest tick the trading loop has processed;
+    # compare with the wall clock to see how far behind the loop is.
+    last_tick_at: datetime | None = None
 
     def record(self, signals: int, errors: tuple[str, ...] = (),
-               reconciliation: Any = None) -> None:
+               reconciliation: Any = None, last_tick_at: datetime | None = None) -> None:
         if signals < 0:
             raise ValueError("signals cannot be negative")
         self.cycles += 1
         self.signals += signals
         self.errors += len(errors)
+        if last_tick_at is not None:
+            self.last_tick_at = last_tick_at
         if errors:
             self.last_error = errors[-1]
         if reconciliation is not None:
             self.reconciliation_updates += int(getattr(reconciliation, "updated", 0))
             self.reconciliation_ignored += int(getattr(reconciliation, "ignored", 0))
+
+    def lag_seconds(self, now: datetime) -> float | None:
+        if self.last_tick_at is None:
+            return None
+        return (now - self.last_tick_at).total_seconds()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -34,4 +45,5 @@ class RuntimeMetrics:
             "reconciliation_updates": self.reconciliation_updates,
             "reconciliation_ignored": self.reconciliation_ignored,
             "last_error": self.last_error,
+            "last_tick_at": self.last_tick_at.isoformat() if self.last_tick_at else None,
         }

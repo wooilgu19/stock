@@ -18,6 +18,7 @@ import asyncio
 import logging
 import signal
 import threading
+from datetime import datetime, timezone
 
 from src.api.kis_websocket import KISWebSocketClient
 from src.application import build_health_app, build_runtime
@@ -44,7 +45,7 @@ def _log_signal_result(signal: object, result: object) -> None:
 def _run_trading_loop(settings: Settings, queue: RedisQueue, metrics: RuntimeMetrics,
                        stop_event: threading.Event, poll_interval: float, quantity: int,
                        strategy: str = "moving-average",
-                       enforce_market_hours: bool = True) -> None:
+                       enforce_market_hours: bool = True, batch_size: int = 200) -> None:
     if strategy == "lstm":
         from src.strategies.lstm_strategy import LSTMStrategy  # heavy torch import; only pay for it when selected
         predictor = LSTMStrategy()
@@ -56,7 +57,7 @@ def _run_trading_loop(settings: Settings, queue: RedisQueue, metrics: RuntimeMet
         enforce_market_hours=enforce_market_hours,
     )
     try:
-        cycles = runtime.run(stop_event, count=10)
+        cycles = runtime.run(stop_event, count=batch_size)
         logger.info("trading loop stopped after %d cycles", cycles)
     except Exception:
         logger.exception("trading loop crashed")
@@ -71,8 +72,10 @@ def _run_status_logger(metrics: RuntimeMetrics, stop_event: threading.Event, int
     this covers the (usual) case where nothing actionable has happened yet.
     """
     while not stop_event.wait(interval):
-        logger.info("status cycles=%d signals=%d errors=%d last_error=%s",
-                    metrics.cycles, metrics.signals, metrics.errors, metrics.last_error)
+        lag = metrics.lag_seconds(datetime.now(timezone.utc))
+        logger.info("status cycles=%d signals=%d errors=%d lag=%s last_error=%s",
+                    metrics.cycles, metrics.signals, metrics.errors,
+                    "n/a" if lag is None else f"{lag:.0f}s", metrics.last_error)
 
 
 async def _run_collector(settings: Settings, symbols: list[str], queue: RedisQueue,
@@ -140,6 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="signal strategy to run (default: moving-average)")
     parser.add_argument("--poll-interval", type=float, default=1.0,
                         help="trading loop poll interval in seconds (default: 1.0)")
+    parser.add_argument("--batch-size", type=int, default=200,
+                        help="ticks read per queue call; the loop keeps reading without "
+                             "sleeping while a backlog remains (default: 200)")
     parser.add_argument("--health-port", type=int, default=None,
                         help="serve /health and /metrics on this port (optional)")
     parser.add_argument("--status-interval", type=float, default=10.0,
@@ -161,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.record and args.replay:
         raise SystemExit("--record and --replay cannot be used together")
+    if args.batch_size <= 0:
+        raise SystemExit("--batch-size must be positive")
 
     settings = Settings()
     if args.replay is None:
@@ -201,7 +209,8 @@ def main(argv: list[str] | None = None) -> int:
     threads = [threading.Thread(
         target=_run_trading_loop,
         args=(settings, queue, metrics, stop_event, args.poll_interval, args.quantity),
-        kwargs={"enforce_market_hours": args.replay is None, "strategy": args.strategy},
+        kwargs={"enforce_market_hours": args.replay is None, "strategy": args.strategy,
+                "batch_size": args.batch_size},
         name="trading-loop", daemon=True,
     )]
     if args.health_port is not None:

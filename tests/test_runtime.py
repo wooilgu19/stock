@@ -88,6 +88,7 @@ def test_runtime_records_metrics():
         "reconciliation_updates": 0,
         "reconciliation_ignored": 0,
         "last_error": None,
+        "last_tick_at": None,
     }
 
 
@@ -123,3 +124,83 @@ def test_runtime_rejects_invalid_options():
         TradingRuntime(FakeWorker()).run_once(count=0)
     with pytest.raises(ValueError, match="count"):
         TradingRuntime(FakeWorker()).run(Event(), count=0)
+
+
+class BacklogWorker:
+    """Queue stand-in holding ``pending`` ticks; each call returns up to ``count``."""
+
+    def __init__(self, pending, clock=None, step=0.0):
+        self.pending = pending
+        self.calls = []
+        self.clock = clock
+        self.step = step
+
+    def process_once(self, count=10):
+        self.calls.append(count)
+        if self.clock is not None:
+            self.clock[0] += self.step
+        taken = min(count, self.pending)
+        self.pending -= taken
+        from datetime import datetime, timezone
+        from src.models import Signal, SignalAction
+        ts = datetime(2026, 11, 4, tzinfo=timezone.utc)
+        return [Signal("005930", SignalAction.HOLD, 0.0, 100.0, "t", ts)] * taken
+
+
+def test_run_once_drains_backlog_in_one_cycle():
+    """Regression (2026-10-29, 11-02): reading one 10-tick batch per 1s poll
+    left the paper loop 20-80 minutes behind the market on busy days."""
+    worker = BacklogWorker(pending=1_005)
+    runtime = TradingRuntime(worker, poll_interval=1.0)
+
+    cycle = runtime.run_once(count=10)
+
+    assert len(cycle.signals) == 1_005
+    assert worker.pending == 0
+    assert cycle.backlog is False
+
+
+def test_run_once_stops_draining_after_time_budget(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr("src.runtime.monotonic", lambda: clock[0])
+    worker = BacklogWorker(pending=1_000, clock=clock, step=0.4)
+    runtime = TradingRuntime(worker, poll_interval=1.0, max_drain_seconds=1.0)
+
+    cycle = runtime.run_once(count=10)
+
+    assert len(worker.calls) == 3  # 0.4, 0.8, 1.2s -> budget exhausted
+    assert cycle.backlog is True
+    assert worker.pending == 970
+
+
+def test_run_skips_poll_sleep_while_backlog_remains():
+    class CountingEvent(Event):
+        def __init__(self):
+            super().__init__()
+            self.waits = []
+
+        def wait(self, timeout=None):
+            self.waits.append(timeout)
+            return False
+
+    worker = BacklogWorker(pending=25)
+    runtime = TradingRuntime(worker, poll_interval=1.0, max_drain_seconds=0)
+    stop = CountingEvent()
+
+    runtime.run(stop, count=10, max_cycles=4)
+
+    # cycles 1-2 read full batches (backlog, no sleep); cycle 3 reads 5 and
+    # cycle 4 reads 0, so only those two sleep.
+    assert worker.calls == [10, 10, 10, 10]
+    assert len(stop.waits) == 2
+
+
+def test_runtime_records_last_tick_time_in_metrics():
+    metrics = RuntimeMetrics()
+    TradingRuntime(BacklogWorker(pending=3), poll_interval=0, metrics=metrics).run_once(count=10)
+    assert metrics.last_tick_at is not None
+
+
+def test_runtime_rejects_negative_drain_budget():
+    with pytest.raises(ValueError, match="max_drain_seconds"):
+        TradingRuntime(FakeWorker(), max_drain_seconds=-1)
